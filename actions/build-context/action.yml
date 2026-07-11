@@ -1,11 +1,11 @@
-name: github-flow build-context
+name: issue-driven-flow build-context
 description: >-
-  Collect everything a github-flow agent run needs into a context directory:
+  Collect everything a issue-driven-flow agent run needs into a context directory:
   issue payload, body and conversation, current flow/* state, ready-checkbox
   state, linked PR with its review feedback, a repository tree summary, and
   the agent contracts. Also places skills declared in this repository's
   apm.yml (see https://github.com/microsoft/apm) at Claude Code's personal
-  skill directory (~/.claude/skills/github-flow/), so Claude Code's own
+  skill directory (~/.claude/skills/issue-driven-flow/), so Claude Code's own
   Agent Skills detection picks it up. The target repository must already
   be checked out in the workspace.
 inputs:
@@ -113,7 +113,7 @@ runs:
           cp -r "${apm_scratch}/.claude/skills" "${HOME}/.claude/skills"
         fi
 
-        cp "${ACTION_PATH}/../../skills/github-flow/references/"*.md "$DIR/contracts/"
+        cp "${ACTION_PATH}/../../skills/issue-driven-flow/references/"*.md "$DIR/contracts/"
 
         default_branch="$(gh api "repos/${REPO}" --jq '.default_branch')"
         jq -n \

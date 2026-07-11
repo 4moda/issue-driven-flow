@@ -1,12 +1,12 @@
-# Dogfood wrapper: run github-flow on this repository itself.
+# Dogfood wrapper: run issue-driven-flow on this repository itself.
 #
 # Other repositories should reference the reusable workflows by tag
-# (uses: 4moda/github-flow/.github/workflows/shape.yml@v2 — see
+# (uses: 4moda/issue-driven-flow/.github/workflows/shape.yml@v2 — see
 # docs/adopting.md). This repo uses the local `./` form instead, so main
 # always exercises the latest workflow logic. Note the composite actions
 # inside those workflows still resolve at @v2, so action changes take
 # effect here only after the v2 tag moves.
-name: github-flow
+name: issue-driven-flow
 
 on:
   issues:

@@ -1,4 +1,4 @@
-# github-flow concepts
+# issue-driven-flow concepts
 
 The state machine, its invariants, and the edge-case behavior that the
 workflows implement. `scripts/gf.py` is the single source of truth for the

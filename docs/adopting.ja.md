@@ -1,11 +1,11 @@
-# リポジトリへの github-flow の導入
+# リポジトリへの issue-driven-flow の導入
 
 [English](adopting.md) | [日本語](adopting.ja.md)
 
 初回のみ必要な3つのステップ: Actions に PR 作成を許可し、認証情報を追加し、
 ラベルを作成する —— その後、ラッパーワークフローを1つ配置します。
 
-`4moda/github-flow` はパブリックなので、その再利用可能ワークフローとアク
+`4moda/issue-driven-flow` はパブリックなので、その再利用可能ワークフローとアク
 ションはそのままどのリポジトリからでも利用できます。（プライベートフォーク
 を運用する場合は、先にアクセスを許可してください: フォーク →
 **Settings → Actions → General → Access** →
@@ -78,10 +78,10 @@ bash scripts/setup-labels.sh <owner>/<repo> run-ai
 
 ## 4. ラッパーワークフローを追加する
 
-ファイルは1つ: `.github/workflows/github-flow.yml`
+ファイルは1つ: `.github/workflows/issue-driven-flow.yml`
 
 ```yaml
-name: github-flow
+name: issue-driven-flow
 
 on:
   issues:
@@ -94,7 +94,7 @@ on:
 jobs:
   shape:
     if: github.event_name == 'issues' && github.event.label.name == 'flow'
-    uses: 4moda/github-flow/.github/workflows/shape.yml@v2
+    uses: 4moda/issue-driven-flow/.github/workflows/shape.yml@v2
     permissions:
       contents: read
       issues: write
@@ -105,7 +105,7 @@ jobs:
   build:
     # fires for `flow` on an issue AND for `flow` on a flow/issue-N pull request
     if: github.event.label.name == 'flow'
-    uses: 4moda/github-flow/.github/workflows/build.yml@v2
+    uses: 4moda/issue-driven-flow/.github/workflows/build.yml@v2
     permissions:
       contents: write
       issues: write
@@ -119,7 +119,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request_review' ||
       (github.event_name == 'pull_request' && github.event.action != 'labeled')
-    uses: 4moda/github-flow/.github/workflows/sync-pr.yml@v2
+    uses: 4moda/issue-driven-flow/.github/workflows/sync-pr.yml@v2
     permissions:
       issues: write
       pull-requests: read
@@ -200,7 +200,7 @@ Issue を個別に承認・トリガーします。
 - 上記のラッパーではジョブごとに最小限の権限が宣言されており、フローの中
   でそれ以上を必要とするものはありません。
 - `flow/*` ラベルの名前空間と `flow/issue-*` ブランチの名前空間は
-  github-flow 用に予約されています —— 利用側リポジトリでこれらのプレフィッ
+  issue-driven-flow 用に予約されています —— 利用側リポジトリでこれらのプレフィッ
   クスを持つ独自のラベルやブランチを作成しないでください。
 - build の実行は PR 自身の CI を **待ちません**: マージは人間の判断なの
   で、代わりに PR のブランチ保護 / 必須ステータスチェックでゲートしてくだ
@@ -210,7 +210,7 @@ Issue を個別に承認・トリガーします。
 - 利用側リポジトリに `PULL_REQUEST_TEMPLATE.md`（`.github/`、ルート、また
   は `docs/` 内）がある場合、Crafter はそれを PR 本文として埋めます。
   GitHub 自体は Web UI から作成された PR にしか PR テンプレートを適用しな
-  いため、github-flow は API 経由で作成する PR に対してその挙動を再現しま
+  いため、issue-driven-flow は API 経由で作成する PR に対してその挙動を再現しま
   す。クローズキーワード（`Closes #N`）と帰属フッターはいずれの場合も自動
   的に追加されます。
 - 通常の Issue/PR の会話コメントだけでは何もトリガーされません —— 実行が

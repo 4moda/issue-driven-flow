@@ -1,6 +1,6 @@
-name: github-flow update-issue
+name: issue-driven-flow update-issue
 description: >-
-  Apply a github-flow transition to an issue: swap the flow/* state label,
+  Apply a issue-driven-flow transition to an issue: swap the flow/* state label,
   optionally replace the body, post a comment, and remove the public
   trigger label. All flow/* label writes go through this action so an
   issue always ends up with at most one state label.
@@ -56,7 +56,7 @@ runs:
           esac
           # self-heal: make sure the label exists in the repository
           gh label create "$STATE" --repo "$REPO" --color ededed \
-            --description "github-flow internal state (automation-managed)" \
+            --description "issue-driven-flow internal state (automation-managed)" \
             >/dev/null 2>&1 || true
           current="$(gh api "repos/${REPO}/issues/${ISSUE}" \
             --jq '[.labels[].name | select(startswith("flow/"))][]')"

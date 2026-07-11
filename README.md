@@ -1,8 +1,8 @@
-# github-flow
+# issue-driven-flow
 
 [English](README.md) | [日本語](README.ja.md)
 
-[![ci](https://github.com/4moda/github-flow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/4moda/github-flow/actions/workflows/ci.yml)
+[![ci](https://github.com/4moda/issue-driven-flow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/4moda/issue-driven-flow/actions/workflows/ci.yml)
 
 Issue-driven AI development for GitHub, shared across repositories.
 
@@ -78,12 +78,12 @@ apply mechanically, so every state transition is explainable from logs.
 
 ## How it works
 
-- [skills/github-flow/SKILL.md](skills/github-flow/SKILL.md) — operating
+- [skills/issue-driven-flow/SKILL.md](skills/issue-driven-flow/SKILL.md) — operating
   model, roles, design rules.
-- [skills/github-flow/references/concepts.md](skills/github-flow/references/concepts.md)
+- [skills/issue-driven-flow/references/concepts.md](skills/issue-driven-flow/references/concepts.md)
   — state machine, routing table, invariants, edge cases.
-- [skills/github-flow/references/composer.md](skills/github-flow/references/composer.md)
-  / [crafter.md](skills/github-flow/references/crafter.md) — the fixed
+- [skills/issue-driven-flow/references/composer.md](skills/issue-driven-flow/references/composer.md)
+  / [crafter.md](skills/issue-driven-flow/references/crafter.md) — the fixed
   contracts the agents follow.
 
 ## Layout
@@ -99,7 +99,7 @@ apply mechanically, so every state transition is explainable from logs.
 | `actions/update-issue` | the only writer of `flow/*` labels, bodies, comments |
 | `scripts/gf.py` | tested decision logic (state, ready checkbox, routing) |
 | `scripts/setup-labels.sh` | create the `flow` + `flow/*` labels in a consumer repo |
-| `skills/github-flow/` | skill document and agent contracts |
+| `skills/issue-driven-flow/` | skill document and agent contracts |
 | `tests/` | unit tests for `gf.py` |
 
 Reusable workflows live under `.github/workflows/` (a GitHub requirement

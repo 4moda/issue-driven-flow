@@ -1,5 +1,5 @@
 <!-- Filled in by humans opening PRs via the web UI, and by the
-     github-flow Crafter for automated PRs. -->
+     issue-driven-flow Crafter for automated PRs. -->
 
 ## Summary
 

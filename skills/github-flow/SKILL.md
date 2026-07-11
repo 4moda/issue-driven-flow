@@ -1,5 +1,5 @@
 ---
-name: github-flow
+name: issue-driven-flow
 description: >-
   Issue-driven AI development on GitHub. Humans steer with one public label
   (`flow`) and one checkbox (`ready for implementation`); reusable GitHub
@@ -10,9 +10,9 @@ metadata:
   category: automation
 ---
 
-# github-flow — issue-driven AI execution for GitHub
+# issue-driven-flow — issue-driven AI execution for GitHub
 
-`github-flow` turns GitHub Issues into a task pipeline that Claude works
+`issue-driven-flow` turns GitHub Issues into a task pipeline that Claude works
 through inside GitHub Actions. It lives in one shared repository; product
 repositories consume it with a single thin wrapper workflow.
 
@@ -101,7 +101,7 @@ Complete instructions with a copy-paste wrapper:
 ## Repository layout
 
 ```
-skills/github-flow/       this skill and the agent contracts
+skills/issue-driven-flow/       this skill and the agent contracts
   references/composer.md    Composer (shaping) contract
   references/crafter.md     Crafter (implementation) contract
   references/issue-template.md  shaped-issue body format

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup-labels.sh <owner/repo> [trigger-label]
 #
-# Create the labels github-flow needs in a consumer repository. The
+# Create the labels issue-driven-flow needs in a consumer repository. The
 # trigger label defaults to "flow"; pass a second argument to use another
 # name (it must not start with "flow/" — that prefix is the state-label
 # namespace). Idempotent: existing labels are updated in place (--force),
@@ -24,23 +24,23 @@ create() {
 }
 
 create "$trigger" "6f42c1" \
-  "Run the next github-flow step on this issue"
+  "Run the next issue-driven-flow step on this issue"
 
 create "flow/shaping" "fbca04" \
-  "github-flow: Composer is shaping this issue (automation-managed)"
+  "issue-driven-flow: Composer is shaping this issue (automation-managed)"
 create "flow/awaiting-approval" "1d76db" \
-  "github-flow: shaped, waiting for human approval (automation-managed)"
+  "issue-driven-flow: shaped, waiting for human approval (automation-managed)"
 create "flow/building" "a2eeef" \
-  "github-flow: Crafter is implementing (automation-managed)"
+  "issue-driven-flow: Crafter is implementing (automation-managed)"
 create "flow/pr-open" "0052cc" \
-  "github-flow: a PR is open for this issue (automation-managed)"
+  "issue-driven-flow: a PR is open for this issue (automation-managed)"
 create "flow/blocked-shape" "d93f0b" \
-  "github-flow: shaping blocked, needs human input (automation-managed)"
+  "issue-driven-flow: shaping blocked, needs human input (automation-managed)"
 create "flow/blocked-build" "b60205" \
-  "github-flow: implementation blocked, needs human input (automation-managed)"
+  "issue-driven-flow: implementation blocked, needs human input (automation-managed)"
 create "flow/done" "0e8a16" \
-  "github-flow: PR merged, flow complete (automation-managed)"
+  "issue-driven-flow: PR merged, flow complete (automation-managed)"
 create "flow/split" "5319e7" \
-  "github-flow: split into sub-issues, tracking only (automation-managed)"
+  "issue-driven-flow: split into sub-issues, tracking only (automation-managed)"
 
-echo "github-flow labels are set up in ${repo} (trigger label: ${trigger})."
+echo "issue-driven-flow labels are set up in ${repo} (trigger label: ${trigger})."

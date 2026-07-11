@@ -1,6 +1,6 @@
-name: github-flow route
+name: issue-driven-flow route
 description: >-
-  Decide what a github-flow workflow should do with an issue when the
+  Decide what a issue-driven-flow workflow should do with an issue when the
   trigger label is added. Wraps scripts/gf.py so shape.yml and build.yml
   share one tested routing table and exactly one of them acts on any given
   issue.

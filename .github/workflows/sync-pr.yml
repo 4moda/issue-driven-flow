@@ -4,9 +4,9 @@
 #   pull_request:        types: [closed, reopened]
 #   pull_request_review: types: [submitted]
 #
-# Only PRs on github-flow working branches (flow/issue-<n>) are handled; the
+# Only PRs on issue-driven-flow working branches (flow/issue-<n>) are handled; the
 # issue number is derived from the branch name.
-name: github-flow / sync-pr
+name: issue-driven-flow / sync-pr
 
 on:
   workflow_call:
@@ -32,7 +32,7 @@ jobs:
     # job-level on purpose: workflow-level concurrency is unreliable in
     # called reusable workflows
     concurrency:
-      group: github-flow-sync-pr-${{ github.event.pull_request.number }}
+      group: issue-driven-flow-sync-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
       issues: write
@@ -57,14 +57,14 @@ jobs:
           github.event_name == 'pull_request' &&
           github.event.action == 'closed' &&
           github.event.pull_request.merged == true
-        uses: 4moda/github-flow/actions/update-issue@v2
+        uses: 4moda/issue-driven-flow/actions/update-issue@v2
         with:
           issue-number: ${{ steps.issue.outputs.number }}
           state: flow/done
           remove-trigger: "true"
           trigger-label: ${{ inputs.trigger_label }}
           comment: >-
-            **github-flow** — PR #${{ github.event.pull_request.number }}
+            **issue-driven-flow** — PR #${{ github.event.pull_request.number }}
             was merged. Flow complete.
 
       - name: PR closed without merge — mark issue blocked
@@ -73,14 +73,14 @@ jobs:
           github.event_name == 'pull_request' &&
           github.event.action == 'closed' &&
           github.event.pull_request.merged == false
-        uses: 4moda/github-flow/actions/update-issue@v2
+        uses: 4moda/issue-driven-flow/actions/update-issue@v2
         with:
           issue-number: ${{ steps.issue.outputs.number }}
           state: flow/blocked-build
           remove-trigger: "true"
           trigger-label: ${{ inputs.trigger_label }}
           comment: >-
-            **github-flow** — PR #${{ github.event.pull_request.number }}
+            **issue-driven-flow** — PR #${{ github.event.pull_request.number }}
             was closed without merging. Update the issue with what should
             happen instead and add the `${{ inputs.trigger_label }}` label
             to rebuild, or close this issue if the work is no longer needed.
@@ -90,12 +90,12 @@ jobs:
           steps.issue.outputs.number != '' &&
           github.event_name == 'pull_request' &&
           github.event.action == 'reopened'
-        uses: 4moda/github-flow/actions/update-issue@v2
+        uses: 4moda/issue-driven-flow/actions/update-issue@v2
         with:
           issue-number: ${{ steps.issue.outputs.number }}
           state: flow/pr-open
           comment: >-
-            **github-flow** — PR #${{ github.event.pull_request.number }}
+            **issue-driven-flow** — PR #${{ github.event.pull_request.number }}
             was reopened.
 
       - name: Changes requested — prompt rework
@@ -103,11 +103,11 @@ jobs:
           steps.issue.outputs.number != '' &&
           github.event_name == 'pull_request_review' &&
           github.event.review.state == 'changes_requested'
-        uses: 4moda/github-flow/actions/update-issue@v2
+        uses: 4moda/issue-driven-flow/actions/update-issue@v2
         with:
           issue-number: ${{ steps.issue.outputs.number }}
           comment: >-
-            **github-flow** — a review on PR
+            **issue-driven-flow** — a review on PR
             #${{ github.event.pull_request.number }} requested changes. Add
             the `${{ inputs.trigger_label }}` label to the PR (or to this
             issue) to have the Crafter address the review feedback.

@@ -1,6 +1,6 @@
-name: github-flow
+name: issue-driven-flow
 version: 1.0.0
 targets: [claude]
 dependencies:
   apm:
-    - ./skills/github-flow
+    - ./skills/issue-driven-flow

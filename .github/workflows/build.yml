@@ -13,7 +13,7 @@
 #
 # The Crafter edits the working tree only; this workflow commits, pushes,
 # and opens or updates the pull request. Merging is always a human action.
-name: github-flow / build
+name: issue-driven-flow / build
 
 on:
   workflow_call:
@@ -98,7 +98,7 @@ jobs:
       - name: Route by current state
         id: route
         if: steps.issue.outputs.number != ''
-        uses: 4moda/github-flow/actions/route@v2
+        uses: 4moda/issue-driven-flow/actions/route@v2
         with:
           issue-number: ${{ steps.issue.outputs.number }}
           workflow: build
@@ -125,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api -X POST "repos/${REPO}/issues/${PR}/comments" \
-            -f body="**github-flow** — no step to run. ${NOTE}" >/dev/null
+            -f body="**issue-driven-flow** — no step to run. ${NOTE}" >/dev/null
           encoded="$(jq -rn --arg l "$TRIGGER_LABEL" '$l | @uri')"
           gh api -X DELETE "repos/${REPO}/issues/${PR}/labels/${encoded}" \
             >/dev/null 2>&1 || true
@@ -139,7 +139,7 @@ jobs:
     # called reusable workflows. Shared group with shape.yml serializes all
     # agent runs per issue, whichever surface triggered them.
     concurrency:
-      group: github-flow-issue-${{ needs.route.outputs.issue-number }}
+      group: issue-driven-flow-issue-${{ needs.route.outputs.issue-number }}
       cancel-in-progress: false
     permissions:
       contents: write
@@ -168,7 +168,7 @@ jobs:
           token: ${{ secrets.bot_token || github.token }}
 
       - name: Mark issue as building
-        uses: 4moda/github-flow/actions/update-issue@v2
+        uses: 4moda/issue-driven-flow/actions/update-issue@v2
         with:
           issue-number: ${{ env.ISSUE }}
           state: flow/building
@@ -197,7 +197,7 @@ jobs:
           fi
 
       - name: Build context
-        uses: 4moda/github-flow/actions/build-context@v2
+        uses: 4moda/issue-driven-flow/actions/build-context@v2
         with:
           issue-number: ${{ env.ISSUE }}
           context-dir: ${{ env.CONTEXT_DIR }}
@@ -212,10 +212,10 @@ jobs:
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
           github_token: ${{ github.token }}
           prompt: |
-            You are the github-flow Crafter, implementing issue #${{ env.ISSUE }} of ${{ github.repository }}.
+            You are the issue-driven-flow Crafter, implementing issue #${{ env.ISSUE }} of ${{ github.repository }}.
 
-            Use the github-flow skill's Crafter role to implement this issue:
-            invoke the Skill tool for "github-flow", then follow its
+            Use the issue-driven-flow skill's Crafter role to implement this issue:
+            invoke the Skill tool for "issue-driven-flow", then follow its
             Crafter contract (references/crafter.md) exactly.
             The context files for this run are in ${{ env.CONTEXT_DIR }}.
             The repository is checked out in the working directory on branch ${{ env.BRANCH }}; edit it directly.
@@ -247,14 +247,14 @@ jobs:
             title="Resolve #${ISSUE}: $(jq -r '.title // ""' "$CONTEXT_DIR/issue.json" | head -n 1)"
           fi
           {
-            echo '**github-flow** — Crafter is blocked on missing input.'
+            echo '**issue-driven-flow** — Crafter is blocked on missing input.'
             echo
             echo "$note"
             echo
             echo "Update the issue (or answer in a comment) with the missing information, then add the \`${TRIGGER_LABEL}\` label to retry."
           } > "$OUT_DIR/blocked-comment.md"
           {
-            echo '**github-flow** — the build run failed.'
+            echo '**issue-driven-flow** — the build run failed.'
             echo
             echo "$note"
             echo
@@ -275,7 +275,7 @@ jobs:
           set -euo pipefail
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
-            git commit -m "${TITLE}" -m "github-flow Crafter run for #${ISSUE}"
+            git commit -m "${TITLE}" -m "issue-driven-flow Crafter run for #${ISSUE}"
           fi
 
           # push only when the local branch is ahead of its remote
@@ -308,7 +308,7 @@ jobs:
               echo '---'
               echo "Closes #${ISSUE}"
               echo
-              echo '_Opened by the github-flow Crafter. Merge is always a human decision._'
+              echo '_Opened by the issue-driven-flow Crafter. Merge is always a human decision._'
             } > "$OUT_DIR/pr-body.md"
             pr_url="$(gh pr create --repo "$REPO" --head "$BRANCH" \
               --base "$DEFAULT_BRANCH" --title "$TITLE" \
@@ -316,7 +316,7 @@ jobs:
             pr="${pr_url##*/}"
           elif [ "$pushed_new" = "true" ]; then
             {
-              echo '**github-flow** — Crafter pushed an update to this PR.'
+              echo '**issue-driven-flow** — Crafter pushed an update to this PR.'
               echo
               cat "$OUT_DIR/summary.md"
             } > "$OUT_DIR/pr-comment.md"
@@ -324,7 +324,7 @@ jobs:
               -F body=@"$OUT_DIR/pr-comment.md" >/dev/null
           fi
           {
-            echo "**github-flow** — Crafter finished. PR [#${pr}](${GH_SERVER}/${REPO}/pull/${pr}) is ready for review."
+            echo "**issue-driven-flow** — Crafter finished. PR [#${pr}](${GH_SERVER}/${REPO}/pull/${pr}) is ready for review."
             echo
             echo "Review and merge manually when satisfied. To request changes: leave a PR review requesting changes (or describe them in an issue comment), then add the \`${TRIGGER_LABEL}\` label to this issue."
           } > "$OUT_DIR/issue-comment.md"
@@ -332,7 +332,7 @@ jobs:
 
       - name: Update issue — PR open
         if: steps.result.outputs.outcome == 'ready' && steps.publish.outputs.pushed == 'true'
-        uses: 4moda/github-flow/actions/update-issue@v2
+        uses: 4moda/issue-driven-flow/actions/update-issue@v2
         with:
           issue-number: ${{ env.ISSUE }}
           state: flow/pr-open
@@ -340,12 +340,12 @@ jobs:
 
       - name: Update issue — no changes produced
         if: steps.result.outputs.outcome == 'ready' && steps.publish.outputs.pushed == 'false'
-        uses: 4moda/github-flow/actions/update-issue@v2
+        uses: 4moda/issue-driven-flow/actions/update-issue@v2
         with:
           issue-number: ${{ env.ISSUE }}
           state: flow/blocked-build
           comment: >-
-            **github-flow** — the Crafter reported success but produced no
+            **issue-driven-flow** — the Crafter reported success but produced no
             changes, so nothing was pushed. Refine the issue (the acceptance
             criteria may already be satisfied), then add the
             `${{ inputs.trigger_label }}` label to retry, or close the issue
@@ -353,7 +353,7 @@ jobs:
 
       - name: Update issue — blocked
         if: steps.result.outputs.outcome == 'blocked'
-        uses: 4moda/github-flow/actions/update-issue@v2
+        uses: 4moda/issue-driven-flow/actions/update-issue@v2
         with:
           issue-number: ${{ env.ISSUE }}
           state: flow/blocked-build
@@ -361,7 +361,7 @@ jobs:
 
       - name: Update issue — failed
         if: steps.result.outputs.outcome == 'failed'
-        uses: 4moda/github-flow/actions/update-issue@v2
+        uses: 4moda/issue-driven-flow/actions/update-issue@v2
         with:
           issue-number: ${{ env.ISSUE }}
           state: flow/blocked-build
@@ -373,7 +373,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh label create "flow/blocked-build" --repo "$REPO" --color b60205 \
-            --description "github-flow: implementation blocked, needs human input (automation-managed)" \
+            --description "issue-driven-flow: implementation blocked, needs human input (automation-managed)" \
             >/dev/null 2>&1 || true
           # clear whatever state the run started from, so at most one
           # flow/* label remains after recovery
@@ -384,7 +384,7 @@ jobs:
           gh api -X POST "repos/${REPO}/issues/${ISSUE}/labels" \
             -f "labels[]=flow/blocked-build" >/dev/null 2>&1 || true
           gh api -X POST "repos/${REPO}/issues/${ISSUE}/comments" \
-            -f body="**github-flow** — the build run failed unexpectedly. See the [run log](${RUN_URL}), then add the \`${TRIGGER_LABEL}\` label to retry." \
+            -f body="**issue-driven-flow** — the build run failed unexpectedly. See the [run log](${RUN_URL}), then add the \`${TRIGGER_LABEL}\` label to retry." \
             >/dev/null 2>&1 || true
           encoded="$(jq -rn --arg l "$TRIGGER_LABEL" '$l | @uri')"
           gh api -X DELETE "repos/${REPO}/issues/${ISSUE}/labels/${encoded}" \

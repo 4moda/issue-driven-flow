@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decision logic for github-flow workflows.
+"""Decision logic for issue-driven-flow workflows.
 
 Reads GitHub issue JSON on stdin and prints a result. Keeping the logic
 here (stdlib only, no network) makes it unit testable; fetching data and
@@ -121,7 +121,7 @@ def route(
 
     if issue.get("state") == "closed":
         return result(
-            ack, state, "This issue is closed; github-flow only runs on open issues."
+            ack, state, "This issue is closed; issue-driven-flow only runs on open issues."
         )
 
     if state in (NO_STATE, BLOCKED_SHAPE):
@@ -158,7 +158,7 @@ def route(
         return result(
             ack,
             state,
-            "A github-flow run is already in progress for this issue. "
+            "A issue-driven-flow run is already in progress for this issue. "
             f"Wait for it to finish, then add `{trigger_label}` again if needed.",
         )
 

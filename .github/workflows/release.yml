@@ -116,7 +116,7 @@ jobs:
           LINE: ${{ steps.version.outputs.line }}
         run: |
           set -euo pipefail
-          mismatched="$(grep -Hn "4moda/github-flow/actions/" \
+          mismatched="$(grep -Hn "4moda/issue-driven-flow/actions/" \
             .github/workflows/shape.yml \
             .github/workflows/build.yml \
             .github/workflows/sync-pr.yml \

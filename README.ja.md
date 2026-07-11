@@ -1,8 +1,8 @@
-# github-flow
+# issue-driven-flow
 
 [English](README.md) | [日本語](README.ja.md)
 
-[![ci](https://github.com/4moda/github-flow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/4moda/github-flow/actions/workflows/ci.yml)
+[![ci](https://github.com/4moda/issue-driven-flow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/4moda/issue-driven-flow/actions/workflows/ci.yml)
 
 GitHub 向けの Issue 駆動 AI 開発フローを、複数リポジトリで共有します。
 
@@ -81,12 +81,12 @@ AI が呼び出されるのは **正確に2つのステップ** だけです:
 
 ## 仕組み
 
-- [skills/github-flow/SKILL.md](skills/github-flow/SKILL.md) —— 運用モデル、
+- [skills/issue-driven-flow/SKILL.md](skills/issue-driven-flow/SKILL.md) —— 運用モデル、
   役割、設計ルール。
-- [skills/github-flow/references/concepts.md](skills/github-flow/references/concepts.md)
+- [skills/issue-driven-flow/references/concepts.md](skills/issue-driven-flow/references/concepts.md)
   —— ステートマシン、ルーティングテーブル、不変条件、エッジケース。
-- [skills/github-flow/references/composer.md](skills/github-flow/references/composer.md)
-  / [crafter.md](skills/github-flow/references/crafter.md) —— エージェントが
+- [skills/issue-driven-flow/references/composer.md](skills/issue-driven-flow/references/composer.md)
+  / [crafter.md](skills/issue-driven-flow/references/crafter.md) —— エージェントが
   従う固定の契約。
 
 ## レイアウト
@@ -102,7 +102,7 @@ AI が呼び出されるのは **正確に2つのステップ** だけです:
 | `actions/update-issue` | `flow/*` ラベル、本文、コメントを書き込む唯一の存在 |
 | `scripts/gf.py` | テスト済みの判定ロジック（ステート、承認チェックボックス、ルーティング） |
 | `scripts/setup-labels.sh` | 利用側リポジトリに `flow` + `flow/*` ラベルを作成する |
-| `skills/github-flow/` | スキルドキュメントとエージェント契約 |
+| `skills/issue-driven-flow/` | スキルドキュメントとエージェント契約 |
 | `tests/` | `gf.py` の単体テスト |
 
 再利用可能ワークフローは（`workflow_call` に関する GitHub の要件により）

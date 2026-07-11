@@ -1,11 +1,11 @@
-# Adopting github-flow in a repository
+# Adopting issue-driven-flow in a repository
 
 [English](adopting.md) | [日本語](adopting.ja.md)
 
 Three one-time steps: allow Actions to create PRs, add a credential, and
 create the labels — then drop in one wrapper workflow.
 
-`4moda/github-flow` is public, so its reusable workflows and actions are
+`4moda/issue-driven-flow` is public, so its reusable workflows and actions are
 usable from any repository as-is. (If you run a private fork instead, grant
 access first: fork → **Settings → Actions → General → Access** →
 *"Accessible from repositories owned by ..."*.)
@@ -72,10 +72,10 @@ the automation-owned state labels, and the workflows reject such a name.
 
 ## 4. Add the wrapper workflow
 
-One file: `.github/workflows/github-flow.yml`
+One file: `.github/workflows/issue-driven-flow.yml`
 
 ```yaml
-name: github-flow
+name: issue-driven-flow
 
 on:
   issues:
@@ -88,7 +88,7 @@ on:
 jobs:
   shape:
     if: github.event_name == 'issues' && github.event.label.name == 'flow'
-    uses: 4moda/github-flow/.github/workflows/shape.yml@v2
+    uses: 4moda/issue-driven-flow/.github/workflows/shape.yml@v2
     permissions:
       contents: read
       issues: write
@@ -99,7 +99,7 @@ jobs:
   build:
     # fires for `flow` on an issue AND for `flow` on a flow/issue-N pull request
     if: github.event.label.name == 'flow'
-    uses: 4moda/github-flow/.github/workflows/build.yml@v2
+    uses: 4moda/issue-driven-flow/.github/workflows/build.yml@v2
     permissions:
       contents: write
       issues: write
@@ -113,7 +113,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request_review' ||
       (github.event_name == 'pull_request' && github.event.action != 'labeled')
-    uses: 4moda/github-flow/.github/workflows/sync-pr.yml@v2
+    uses: 4moda/issue-driven-flow/.github/workflows/sync-pr.yml@v2
     permissions:
       issues: write
       pull-requests: read
@@ -188,7 +188,7 @@ Only the `flow` label and the `ready for implementation` checkbox. All
 - Minimum permissions are declared per job in the wrapper above; nothing in
   the flow needs more.
 - The `flow/*` label namespace and `flow/issue-*` branch namespace are
-  reserved for github-flow — don't create your own labels or branches with
+  reserved for issue-driven-flow — don't create your own labels or branches with
   those prefixes in a consumer repository.
 - The build run does **not** wait for the PR's own CI: merge is a human
   decision, so gate it with branch protection / required status checks on
@@ -198,7 +198,7 @@ Only the `flow` label and the `ready for implementation` checkbox. All
 - If the consumer repository has a `PULL_REQUEST_TEMPLATE.md` (in
   `.github/`, the root, or `docs/`), the Crafter fills it in as the PR
   body. GitHub itself only applies PR templates to web-UI PRs, so
-  github-flow replicates that for its API-created PRs; the closing
+  issue-driven-flow replicates that for its API-created PRs; the closing
   keyword (`Closes #N`) and attribution footer are appended automatically
   either way.
 - Ordinary issue/PR conversation comments never trigger anything by
