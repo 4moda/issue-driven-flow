@@ -1,0 +1,154 @@
+# Automated tagging for this repository.
+#
+# Every push to main that touches the consumable product (reusable
+# workflows, actions, scripts, skills) is gated on tests + lint, tagged as
+# a patch release, and the moving major tag (e.g. v2) is advanced. The head
+# commit message can override: "[release:minor]" bumps minor instead,
+# "[release:skip]" suppresses the release. Docs/tests-only pushes never
+# trigger this workflow at all.
+#
+# Major releases stay manual by design (they need a backward-compatibility
+# judgment): land a commit that updates the internal action refs to the new
+# line first, then run this workflow via workflow_dispatch with bump=major.
+# The ref check below refuses to tag a tree whose internal refs don't match
+# the line being released.
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'actions/**'
+      - 'scripts/**'
+      - 'skills/**'
+      - '.github/workflows/shape.yml'
+      - '.github/workflows/build.yml'
+      - '.github/workflows/sync-pr.yml'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: >-
+          Version bump (major requires the internal action refs to already
+          point at the new line)
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Gate on tests and lint
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests
+          pipx run ruff check scripts tests
+          shellcheck scripts/*.sh
+          curl -sSfL -o /tmp/download-actionlint.bash \
+            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash
+          bash /tmp/download-actionlint.bash latest /tmp
+          /tmp/actionlint
+
+      - name: Determine bump type
+        id: bump
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            bump="$DISPATCH_BUMP"
+          else
+            message="$(git log -1 --pretty=%B)"
+            case "$message" in
+              *"[release:skip]"*)  bump="skip" ;;
+              *"[release:minor]"*) bump="minor" ;;
+              *)                   bump="patch" ;;
+            esac
+          fi
+          echo "bump=${bump}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next version
+        id: version
+        if: steps.bump.outputs.bump != 'skip'
+        env:
+          BUMP: ${{ steps.bump.outputs.bump }}
+        run: |
+          set -euo pipefail
+          current_major="$(git tag -l 'v*' | grep -E '^v[0-9]+$' | sort -V | tail -n 1)"
+          latest="$(git tag -l "${current_major}.*" \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
+          IFS=. read -r major minor patch <<<"${latest#v}"
+          case "$BUMP" in
+            patch) next="v${major}.${minor}.$((patch + 1))"; line="v${major}" ;;
+            minor) next="v${major}.$((minor + 1)).0";        line="v${major}" ;;
+            major) next="v$((major + 1)).0.0";               line="v$((major + 1))" ;;
+          esac
+          {
+            echo "next=${next}"
+            echo "line=${line}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing ${next} on major line ${line} (previous: ${latest})"
+
+      # The tag must ship workflows whose composite-action refs resolve to
+      # the same line, or consumers get version skew.
+      - name: Verify internal action refs match the release line
+        id: verify
+        if: steps.bump.outputs.bump != 'skip'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LINE: ${{ steps.version.outputs.line }}
+        run: |
+          set -euo pipefail
+          mismatched="$(grep -Hn "4moda/github-flow/actions/" \
+            .github/workflows/shape.yml \
+            .github/workflows/build.yml \
+            .github/workflows/sync-pr.yml \
+            | grep -v "@${LINE}$" || true)"
+          if [ -z "$mismatched" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = "push" ]; then
+            # refs already target the next major: this is a major-prep
+            # commit, so quietly skip the automatic patch release
+            echo "Internal refs do not match ${LINE} — assuming a major-release"
+            echo "prep commit. Skipping the automatic release; run this"
+            echo "workflow manually with bump=major."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ERROR: internal action refs do not match ${LINE}:" >&2
+          echo "$mismatched" >&2
+          echo "Land a commit updating the @refs (workflows + docs) first." >&2
+          exit 1
+
+      - name: Create release and move the major tag
+        if: steps.bump.outputs.bump != 'skip' && steps.verify.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.version.outputs.next }}
+          LINE: ${{ steps.version.outputs.line }}
+        run: |
+          set -euo pipefail
+          gh release create "$NEXT" --target "$GITHUB_SHA" \
+            --title "$NEXT" --generate-notes
+          git tag -f "$LINE" "$GITHUB_SHA"
+          git push -f origin "$LINE"
+          echo "Released ${NEXT}; ${LINE} now points at ${GITHUB_SHA}"

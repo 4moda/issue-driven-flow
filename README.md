@@ -118,17 +118,23 @@ CI runs all four on every push and pull request.
 ## Releasing
 
 Consumers pin a major tag (`@v2`, the current line), and the workflows'
-internal action references use the same tag, so a release is: tag an exact
-version, then move the major tag to the same commit.
+internal action references use the same tag. Tagging is automated by
+[`release.yml`](.github/workflows/release.yml):
 
-```bash
-git tag -a v2.1.0 -m "v2.1.0"
-git tag -f v2 v2.1.0
-git push origin v2.1.0
-git push -f origin v2
-```
+- Every push to `main` that touches the product (reusable workflows,
+  `actions/`, `scripts/`, `skills/`) is gated on tests + lint, tagged as a
+  **patch** release (GitHub Release with generated notes), and the moving
+  major tag is advanced. Docs/tests-only pushes never release.
+- Put `[release:minor]` in the head commit message to make that push a
+  **minor** release; `[release:skip]` suppresses the release.
+- **Major** releases are manual by design — they need a
+  backward-compatibility judgment. First land a commit updating the
+  internal action refs (e.g. `@v2` → `@v3`) and docs, then run the
+  `release` workflow via *Run workflow* with `bump: major`. The workflow
+  refuses to tag while internal refs don't match the target line, and
+  automatic patch releases skip themselves on major-prep commits.
 
 Breaking changes (label names, result.json schema, wrapper inputs/secrets)
-get a new major tag instead of moving the current one. History: `v1`
-(frozen at v1.3.0) used `ai` as the trigger label; `v2` renamed it to
-`flow` and made it configurable.
+get a new major tag instead of moving the current one; the old line stays
+frozen. History: `v1` (frozen at v1.3.0) used `ai` as the trigger label;
+`v2` renamed it to `flow` and made it configurable.
