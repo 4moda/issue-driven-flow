@@ -1,14 +1,35 @@
 # Adopting github-flow in a repository
 
-Two one-time steps: add a credential and create the labels — then drop in
-one wrapper workflow.
+Three one-time steps: allow Actions to create PRs, add a credential, and
+create the labels — then drop in one wrapper workflow.
 
 `4moda/github-flow` is public, so its reusable workflows and actions are
 usable from any repository as-is. (If you run a private fork instead, grant
 access first: fork → **Settings → Actions → General → Access** →
 *"Accessible from repositories owned by ..."*.)
 
-## 1. Add a Claude credential
+## 1. Allow GitHub Actions to create pull requests
+
+Unless you provide `GF_BOT_TOKEN` (below), the Crafter opens PRs with the
+default `GITHUB_TOKEN`, and GitHub blocks that by default — the build run
+fails at PR creation with *"GitHub Actions is not permitted to create or
+approve pull requests"*. Enable it in the consumer repository:
+
+- **Settings → Actions → General → Workflow permissions** → tick
+  *"Allow GitHub Actions to create and approve pull requests"*, or
+
+```bash
+gh api -X PUT repos/<owner>/<repo>/actions/permissions/workflow \
+  -f default_workflow_permissions=read \
+  -F can_approve_pull_request_reviews=true
+```
+
+(For organizations, the same toggle also exists at the org level and caps
+the repository setting.) Skipping this is safe to recover from: the issue
+lands in `flow/blocked-build` with the pushed branch intact, and adding
+`ai` after flipping the setting resumes by opening the PR.
+
+## 2. Add a Claude credential
 
 In the consumer repository (or the owning org), add **one** of:
 
@@ -22,7 +43,7 @@ used, which works but **does not trigger the repository's own CI on the
 PRs the Crafter opens** (GitHub suppresses workflow runs for events created
 with `GITHUB_TOKEN`). Add this when you want CI results on Crafter PRs.
 
-## 2. Create the labels
+## 3. Create the labels
 
 ```bash
 bash scripts/setup-labels.sh <owner>/<repo>
@@ -33,7 +54,7 @@ the public `ai` trigger label and the `flow/*` state labels. The state
 labels also self-heal — workflows create them on demand — but `ai` must
 exist so humans can add it.
 
-## 3. Add the wrapper workflow
+## 4. Add the wrapper workflow
 
 One file: `.github/workflows/github-flow.yml`
 
