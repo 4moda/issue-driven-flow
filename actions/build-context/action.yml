@@ -93,7 +93,10 @@ runs:
           # .gitignore) touches this working tree; only the resulting
           # .claude/skills/*/ trees are copied in below, then recorded in
           # .git/info/exclude (not .gitignore) so they never leak into a
-          # Crafter commit or PR diff.
+          # Crafter commit or PR diff. The destination is never cleared
+          # first: it never pre-exists (a fresh checkout, excluded from
+          # git), so a plain copy is enough -- no need to guard against
+          # staleness that can't happen here.
           apm_bin_dir="${RUNNER_TEMP}/apm-bin"
           if ! command -v apm >/dev/null 2>&1; then
             mkdir -p "$apm_bin_dir"
@@ -111,7 +114,6 @@ runs:
             mkdir -p .claude/skills "${git_dir}/info"
             for skill_dir in "${apm_scratch}/.claude/skills/"*/; do
               skill_name="$(basename "$skill_dir")"
-              rm -rf ".claude/skills/${skill_name}"
               cp -r "$skill_dir" ".claude/skills/${skill_name}"
               entry=".claude/skills/${skill_name}/"
               if ! grep -qxF "$entry" "${git_dir}/info/exclude" 2>/dev/null; then
