@@ -151,7 +151,7 @@ jobs:
             echo
             echo "$note"
             echo
-            echo 'Edit the issue (or answer in a comment) with the missing information, then add the `ai` label to retry shaping.'
+            echo "Edit the issue (or answer in a comment) with the missing information, then add the \`ai\` label to retry shaping."
           } > "$OUT_DIR/blocked-comment.md"
           {
             echo '**github-flow** — the shape run failed.'

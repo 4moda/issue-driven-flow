@@ -156,7 +156,7 @@ jobs:
             echo
             echo "$note"
             echo
-            echo 'Update the issue (or answer in a comment) with the missing information, then add the `ai` label to retry.'
+            echo "Update the issue (or answer in a comment) with the missing information, then add the \`ai\` label to retry."
           } > "$OUT_DIR/blocked-comment.md"
           {
             echo '**github-flow** — the build run failed.'
@@ -220,7 +220,7 @@ jobs:
           {
             echo "**github-flow** — Crafter finished. PR [#${pr}](${GH_SERVER}/${REPO}/pull/${pr}) is ready for review."
             echo
-            echo 'Review and merge manually when satisfied. To request changes: leave a PR review requesting changes (or describe them in an issue comment), then add the `ai` label to this issue.'
+            echo "Review and merge manually when satisfied. To request changes: leave a PR review requesting changes (or describe them in an issue comment), then add the \`ai\` label to this issue."
           } > "$OUT_DIR/issue-comment.md"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
