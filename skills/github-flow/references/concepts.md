@@ -1,0 +1,119 @@
+# github-flow concepts
+
+The state machine, its invariants, and the edge-case behavior that the
+workflows implement. `scripts/gf.py` is the single source of truth for the
+routing table below; if this document and the code disagree, fix one of
+them.
+
+## Actors
+
+- **Human** — opens issues, adds the `ai` label, ticks the ready checkbox,
+  reviews and merges PRs. Never touches `flow/*` labels.
+- **Composer** — Claude run that shapes an issue into the fixed template.
+  Never touches code.
+- **Crafter** — Claude run that implements a shaped issue in the working
+  tree. Never commits, pushes, or merges.
+- **Workflows** — own all GitHub state: `flow/*` labels, issue bodies,
+  comments, branches, and PRs. Everything they apply comes from agent
+  result files or event payloads, deterministically.
+
+## States
+
+A state is an issue label starting with `flow/`. An issue carries **at most
+one**. No label means the issue has not entered the flow yet ("Raw" — there
+is deliberately no `flow/raw` label, so new issues need no setup).
+
+| State | Meaning | Set by |
+|-------|---------|--------|
+| *(none)* | not in the flow yet | — |
+| `flow/shaping` | Composer run in progress | shape.yml |
+| `flow/awaiting-approval` | shaped; waiting for a human to tick the checkbox | shape.yml |
+| `flow/building` | Crafter run in progress | build.yml |
+| `flow/pr-open` | a PR on `flow/issue-<n>` is open | build.yml, sync-pr.yml |
+| `flow/blocked-shape` | shaping needs human input (or the run failed) | shape.yml |
+| `flow/blocked-build` | implementation needs human input (or the run failed, or the PR was closed unmerged) | build.yml, sync-pr.yml |
+| `flow/done` | PR merged; flow complete | sync-pr.yml |
+
+`flow/shaping` and `flow/building` exist only while a run is executing; the
+run always exits them (to a result state, or to a blocked state via the
+failure handler).
+
+## Routing table
+
+When a human adds `ai`, both shape.yml and build.yml receive the event and
+ask `gf.py route` what to do. For any issue, exactly one of them acts:
+
+| Condition | shape.yml | build.yml |
+|-----------|-----------|-----------|
+| payload is a pull request | skip | skip |
+| multiple `flow/*` labels | acknowledge (invalid) | skip |
+| issue closed | acknowledge | skip |
+| *(none)* / `flow/blocked-shape` | **shape** | skip |
+| `flow/awaiting-approval`, checkbox unticked | **shape** (re-shape) | skip |
+| `flow/awaiting-approval`, checkbox ticked | skip | **build** (first run) |
+| `flow/blocked-build` / `flow/pr-open` | skip | **build** |
+| `flow/shaping` / `flow/building` | acknowledge (busy) | skip |
+| `flow/done` | acknowledge (done) | skip |
+| unknown `flow/*` label | acknowledge (unknown) | skip |
+
+"Acknowledge" posts a comment explaining why nothing ran and removes `ai`,
+so the trigger label never lingers silently.
+
+The re-shape row resolves scope rewrites: while the checkbox is unticked,
+`ai` always means "shape (again)". Ticking the checkbox is the only thing
+that changes the meaning of `ai` to "implement".
+
+## Happy path walkthrough
+
+1. Human opens an issue describing a change, adds `ai`.
+2. shape.yml: sets `flow/shaping`, removes `ai`, collects context, runs the
+   Composer, replaces the issue body with the shaped template, sets
+   `flow/awaiting-approval`, comments with instructions.
+3. Human reviews the shaped issue, optionally edits it, ticks
+   `ready for implementation`, adds `ai`.
+4. build.yml: sets `flow/building`, removes `ai`, prepares branch
+   `flow/issue-<n>`, runs the Crafter, commits and pushes the changes, opens a
+   PR with `Closes #<n>`, sets `flow/pr-open`, comments with the PR link.
+5. Human reviews the PR.
+   - Satisfied → merges. sync-pr.yml sets `flow/done`; GitHub closes the
+     issue via `Closes #<n>`.
+   - Wants changes → leaves a review requesting changes (sync-pr.yml
+     comments a reminder) and adds `ai`; build.yml reruns the Crafter on the
+     same branch and PR.
+
+## Blocked loops
+
+- Composer blocked → `flow/blocked-shape` + a comment with concrete
+  questions. Human answers (issue edit or comment) and adds `ai` → shaping
+  reruns with the answers in context.
+- Crafter blocked → `flow/blocked-build` + a comment. Same resume gesture.
+- Any run that fails unexpectedly lands in the corresponding blocked state
+  with a link to the run log; adding `ai` retries.
+
+## Invariants
+
+1. At most one `flow/*` label per issue. `actions/update-issue` is the only
+   writer of state labels and enforces this on every transition.
+2. Merge is always performed by a human. Nothing in this repository calls a
+   merge API.
+3. Automation never ticks the `ready for implementation` checkbox.
+4. Every `ai` add is answered exactly once, and automation removes `ai`.
+5. Agents only write files; workflows apply them. An agent result that is
+   missing or malformed is treated as a failed run, never guessed at.
+6. One issue ↔ one branch (`flow/issue-<n>`) ↔ one open PR. The branch name is
+   the link; no fragile cross-reference parsing.
+
+## Edge cases
+
+- **`ai` while a run is in progress** — concurrency serializes runs per
+  issue; the queued run sees `flow/shaping`/`flow/building` and acknowledges.
+- **`ai` on a done or closed issue** — acknowledged with guidance to open a
+  new issue.
+- **Multiple `flow/*` labels** (manual tampering) — acknowledged; the human
+  is asked to remove the extras.
+- **PR closed without merging** — issue moves to `flow/blocked-build` with
+  instructions to rebuild or abandon.
+- **PR reopened** — issue moves back to `flow/pr-open`.
+- **Crafter reports success with no changes** — nothing is pushed; the issue
+  moves to `flow/blocked-build` explaining that the acceptance criteria may
+  already be satisfied.

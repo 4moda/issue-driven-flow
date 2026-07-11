@@ -1,0 +1,216 @@
+# Reusable workflow: shape an issue with the Composer.
+#
+# Call from a consumer repository on `issues: [labeled]`. Acts when the
+# added label is `ai` and the issue is shapeable (no flow/* state label,
+# `flow/blocked-shape`, or `flow/awaiting-approval` with the ready checkbox
+# still unchecked). Also acknowledges `ai` triggers that no workflow can
+# act on, so the label never sticks around silently.
+name: github-flow / shape
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: Claude model override (empty = claude-code-action default)
+        type: string
+        required: false
+        default: ""
+    secrets:
+      anthropic_api_key:
+        description: Anthropic API key (or provide claude_code_oauth_token)
+        required: false
+      claude_code_oauth_token:
+        description: Claude Code OAuth token (or provide anthropic_api_key)
+        required: false
+
+jobs:
+  route:
+    if: >-
+      github.event_name == 'issues' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ai'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+    outputs:
+      action: ${{ steps.route.outputs.action }}
+      state: ${{ steps.route.outputs.state }}
+      note: ${{ steps.route.outputs.note }}
+    steps:
+      - name: Route by current state
+        id: route
+        uses: 4moda/github-flow/actions/route@v1
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          workflow: shape
+
+  # Answers `ai` triggers that neither shape nor build can act on.
+  acknowledge:
+    needs: route
+    if: needs.route.outputs.action == 'acknowledge'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Comment and clear trigger
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          NOTE: ${{ needs.route.outputs.note }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/${REPO}/issues/${ISSUE}/comments" \
+            -f body="**github-flow** — no step to run. ${NOTE}" >/dev/null
+          gh api -X DELETE "repos/${REPO}/issues/${ISSUE}/labels/ai" \
+            >/dev/null 2>&1 || true
+
+  shape:
+    needs: route
+    if: needs.route.outputs.action == 'shape'
+    runs-on: ubuntu-latest
+    # job-level on purpose: workflow-level concurrency is unreliable in
+    # called reusable workflows. Shared group with build.yml serializes all
+    # agent runs per issue.
+    concurrency:
+      group: github-flow-issue-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+    env:
+      ISSUE: ${{ github.event.issue.number }}
+      REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Set run directories
+        run: |
+          {
+            echo "CONTEXT_DIR=${RUNNER_TEMP}/gf-context"
+            echo "OUT_DIR=${RUNNER_TEMP}/gf-out"
+          } >> "$GITHUB_ENV"
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Mark issue as shaping
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          state: flow/shaping
+          remove-ai: "true"
+
+      - name: Build context
+        uses: 4moda/github-flow/actions/build-context@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          context-dir: ${{ env.CONTEXT_DIR }}
+
+      - name: Prepare output directory
+        run: mkdir -p "$OUT_DIR"
+
+      - name: Run Composer
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.anthropic_api_key }}
+          claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+          github_token: ${{ github.token }}
+          prompt: |
+            You are the github-flow Composer, shaping issue #${{ env.ISSUE }} of ${{ github.repository }}.
+
+            Read ${{ env.CONTEXT_DIR }}/contracts/composer.md and follow that contract exactly.
+            The context files for this run are in ${{ env.CONTEXT_DIR }}.
+            The target repository is checked out read-only in the working directory.
+            Write your outputs into ${{ env.OUT_DIR }}.
+          claude_args: >-
+            --allowedTools "Read,Glob,Grep,Write"
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+
+      - name: Read Composer result
+        id: result
+        run: |
+          set -euo pipefail
+          outcome=failed
+          note='The Composer run did not produce a valid result.json.'
+          if [ -f "$OUT_DIR/result.json" ] && jq -e . "$OUT_DIR/result.json" >/dev/null 2>&1; then
+            outcome="$(jq -r '.outcome // "failed"' "$OUT_DIR/result.json")"
+            note="$(jq -r '.note // ""' "$OUT_DIR/result.json")"
+          fi
+          if [ "$outcome" = "shaped" ] && [ ! -s "$OUT_DIR/issue-body.md" ]; then
+            outcome=failed
+            note='The Composer reported "shaped" but wrote no issue-body.md.'
+          fi
+          if [ "$outcome" = "shaped" ] && \
+             ! grep -qi 'ready for implementation' "$OUT_DIR/issue-body.md"; then
+            outcome=failed
+            note='The shaped body is missing the "ready for implementation" checkbox, so approval would be impossible.'
+          fi
+          case "$outcome" in shaped|blocked) ;; *) outcome=failed ;; esac
+          {
+            echo '**github-flow** — Composer is blocked on missing input.'
+            echo
+            echo "$note"
+            echo
+            echo 'Edit the issue (or answer in a comment) with the missing information, then add the `ai` label to retry shaping.'
+          } > "$OUT_DIR/blocked-comment.md"
+          {
+            echo '**github-flow** — the shape run failed.'
+            echo
+            echo "$note"
+            echo
+            echo "See the [run log](${RUN_URL}). Fix the cause if needed, then add the \`ai\` label to retry."
+          } > "$OUT_DIR/failed-comment.md"
+          echo "outcome=${outcome}" >> "$GITHUB_OUTPUT"
+
+      - name: Apply result — shaped
+        if: steps.result.outputs.outcome == 'shaped'
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          state: flow/awaiting-approval
+          body-file: ${{ env.OUT_DIR }}/issue-body.md
+          comment: >-
+            **github-flow** — Composer finished shaping this issue.
+            Review the rewritten body and edit anything that misses your
+            intent. When you agree with the plan, tick the
+            "ready for implementation" checkbox and add the `ai` label to
+            start implementation. Adding `ai` while the box is unchecked
+            sends the issue back to the Composer instead.
+
+      - name: Apply result — blocked
+        if: steps.result.outputs.outcome == 'blocked'
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          state: flow/blocked-shape
+          comment-file: ${{ env.OUT_DIR }}/blocked-comment.md
+
+      - name: Apply result — failed
+        if: steps.result.outputs.outcome == 'failed'
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          state: flow/blocked-shape
+          comment-file: ${{ env.OUT_DIR }}/failed-comment.md
+
+      - name: Recover from unexpected failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "flow/blocked-shape" --repo "$REPO" --color d93f0b \
+            --description "github-flow: shaping blocked, needs human input (automation-managed)" \
+            >/dev/null 2>&1 || true
+          # clear whatever state the run started from, so at most one
+          # flow/* label remains after recovery
+          for label in flow%2Fshaping flow%2Fawaiting-approval; do
+            gh api -X DELETE "repos/${REPO}/issues/${ISSUE}/labels/${label}" \
+              >/dev/null 2>&1 || true
+          done
+          gh api -X POST "repos/${REPO}/issues/${ISSUE}/labels" \
+            -f "labels[]=flow/blocked-shape" >/dev/null 2>&1 || true
+          gh api -X POST "repos/${REPO}/issues/${ISSUE}/comments" \
+            -f body="**github-flow** — the shape run failed unexpectedly. See the [run log](${RUN_URL}), then add the \`ai\` label to retry." \
+            >/dev/null 2>&1 || true
+          gh api -X DELETE "repos/${REPO}/issues/${ISSUE}/labels/ai" \
+            >/dev/null 2>&1 || true

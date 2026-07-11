@@ -1,0 +1,102 @@
+# Reusable workflow: reflect PR outcomes back onto the linked issue.
+#
+# Call from a consumer repository on:
+#   pull_request:        types: [closed, reopened]
+#   pull_request_review: types: [submitted]
+#
+# Only PRs on github-flow working branches (flow/issue-<n>) are handled; the
+# issue number is derived from the branch name.
+name: github-flow / sync-pr
+
+on:
+  workflow_call: {}
+
+jobs:
+  sync:
+    if: >-
+      startsWith(github.event.pull_request.head.ref, 'flow/issue-') &&
+      ((github.event_name == 'pull_request' &&
+        (github.event.action == 'closed' || github.event.action == 'reopened')) ||
+       (github.event_name == 'pull_request_review' &&
+        github.event.action == 'submitted'))
+    runs-on: ubuntu-latest
+    # job-level on purpose: workflow-level concurrency is unreliable in
+    # called reusable workflows
+    concurrency:
+      group: github-flow-sync-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Derive issue number from branch
+        id: issue
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          number="${HEAD_REF#flow/issue-}"
+          if [[ "$number" =~ ^[0-9]+$ ]]; then
+            echo "number=${number}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: PR merged — mark issue done
+        if: >-
+          steps.issue.outputs.number != '' &&
+          github.event_name == 'pull_request' &&
+          github.event.action == 'closed' &&
+          github.event.pull_request.merged == true
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ steps.issue.outputs.number }}
+          state: flow/done
+          remove-ai: "true"
+          comment: >-
+            **github-flow** — PR #${{ github.event.pull_request.number }}
+            was merged. Flow complete.
+
+      - name: PR closed without merge — mark issue blocked
+        if: >-
+          steps.issue.outputs.number != '' &&
+          github.event_name == 'pull_request' &&
+          github.event.action == 'closed' &&
+          github.event.pull_request.merged == false
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ steps.issue.outputs.number }}
+          state: flow/blocked-build
+          remove-ai: "true"
+          comment: >-
+            **github-flow** — PR #${{ github.event.pull_request.number }}
+            was closed without merging. Update the issue with what should
+            happen instead and add the `ai` label to rebuild, or close this
+            issue if the work is no longer needed.
+
+      - name: PR reopened — mark issue pr-open
+        if: >-
+          steps.issue.outputs.number != '' &&
+          github.event_name == 'pull_request' &&
+          github.event.action == 'reopened'
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ steps.issue.outputs.number }}
+          state: flow/pr-open
+          comment: >-
+            **github-flow** — PR #${{ github.event.pull_request.number }}
+            was reopened.
+
+      - name: Changes requested — prompt rework
+        if: >-
+          steps.issue.outputs.number != '' &&
+          github.event_name == 'pull_request_review' &&
+          github.event.review.state == 'changes_requested'
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ steps.issue.outputs.number }}
+          comment: >-
+            **github-flow** — a review on PR
+            #${{ github.event.pull_request.number }} requested changes. Add
+            the `ai` label to this issue to have the Crafter address the
+            review feedback.

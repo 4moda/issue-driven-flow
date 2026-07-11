@@ -1,0 +1,283 @@
+# Reusable workflow: implement an approved issue with the Crafter.
+#
+# Call from a consumer repository on `issues: [labeled]`. Acts when the
+# added label is `ai` and the issue is buildable: `flow/awaiting-approval`
+# with the "ready for implementation" checkbox ticked (first run), or
+# `flow/blocked-build` / `flow/pr-open` (retry and rework runs). The Crafter
+# edits the working tree only; this workflow commits, pushes, and opens or
+# updates the pull request. Merging is always a human action.
+name: github-flow / build
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: Claude model override (empty = claude-code-action default)
+        type: string
+        required: false
+        default: ""
+    secrets:
+      anthropic_api_key:
+        description: Anthropic API key (or provide claude_code_oauth_token)
+        required: false
+      claude_code_oauth_token:
+        description: Claude Code OAuth token (or provide anthropic_api_key)
+        required: false
+      bot_token:
+        description: >-
+          Optional PAT or GitHub App token used for pushing and PR creation.
+          Without it the default GITHUB_TOKEN is used and the consumer
+          repository's CI workflows will NOT trigger on Crafter PRs.
+        required: false
+
+jobs:
+  route:
+    if: >-
+      github.event_name == 'issues' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ai'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+    outputs:
+      action: ${{ steps.route.outputs.action }}
+      state: ${{ steps.route.outputs.state }}
+      first-run: ${{ steps.route.outputs.first-run }}
+    steps:
+      - name: Route by current state
+        id: route
+        uses: 4moda/github-flow/actions/route@v1
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          workflow: build
+
+  build:
+    needs: route
+    if: needs.route.outputs.action == 'build'
+    runs-on: ubuntu-latest
+    # job-level on purpose: workflow-level concurrency is unreliable in
+    # called reusable workflows. Shared group with shape.yml serializes all
+    # agent runs per issue.
+    concurrency:
+      group: github-flow-issue-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      ISSUE: ${{ github.event.issue.number }}
+      REPO: ${{ github.repository }}
+      BRANCH: flow/issue-${{ github.event.issue.number }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      GH_SERVER: ${{ github.server_url }}
+    steps:
+      - name: Set run directories
+        run: |
+          {
+            echo "CONTEXT_DIR=${RUNNER_TEMP}/gf-context"
+            echo "OUT_DIR=${RUNNER_TEMP}/gf-out"
+          } >> "$GITHUB_ENV"
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.bot_token || github.token }}
+
+      - name: Mark issue as building
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          state: flow/building
+          remove-ai: "true"
+
+      - name: Prepare working branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git checkout "$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+          fi
+
+      - name: Build context
+        uses: 4moda/github-flow/actions/build-context@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          context-dir: ${{ env.CONTEXT_DIR }}
+
+      - name: Prepare output directory
+        run: mkdir -p "$OUT_DIR"
+
+      - name: Run Crafter
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.anthropic_api_key }}
+          claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+          github_token: ${{ github.token }}
+          prompt: |
+            You are the github-flow Crafter, implementing issue #${{ env.ISSUE }} of ${{ github.repository }}.
+
+            Read ${{ env.CONTEXT_DIR }}/contracts/crafter.md and follow that contract exactly.
+            The context files for this run are in ${{ env.CONTEXT_DIR }}.
+            The repository is checked out in the working directory on branch ${{ env.BRANCH }}; edit it directly.
+            Write your run outputs into ${{ env.OUT_DIR }}.
+          claude_args: >-
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+
+      - name: Read Crafter result
+        id: result
+        run: |
+          set -euo pipefail
+          outcome=failed
+          note='The Crafter run did not produce a valid result.json.'
+          title=""
+          : > "$OUT_DIR/summary.md"
+          if [ -f "$OUT_DIR/result.json" ] && jq -e . "$OUT_DIR/result.json" >/dev/null 2>&1; then
+            outcome="$(jq -r '.outcome // "failed"' "$OUT_DIR/result.json")"
+            note="$(jq -r '.note // ""' "$OUT_DIR/result.json")"
+            title="$(jq -r '.pr_title // ""' "$OUT_DIR/result.json" | head -n 1)"
+            jq -r '.summary // ""' "$OUT_DIR/result.json" > "$OUT_DIR/summary.md"
+          fi
+          case "$outcome" in ready|blocked) ;; *) outcome=failed ;; esac
+          if [ "$outcome" = "ready" ] && [ ! -s "$OUT_DIR/summary.md" ]; then
+            echo "(no summary provided)" > "$OUT_DIR/summary.md"
+          fi
+          if [ -z "$title" ]; then
+            title="Resolve #${ISSUE}: $(jq -r '.title // ""' "$CONTEXT_DIR/issue.json" | head -n 1)"
+          fi
+          {
+            echo '**github-flow** — Crafter is blocked on missing input.'
+            echo
+            echo "$note"
+            echo
+            echo 'Update the issue (or answer in a comment) with the missing information, then add the `ai` label to retry.'
+          } > "$OUT_DIR/blocked-comment.md"
+          {
+            echo '**github-flow** — the build run failed.'
+            echo
+            echo "$note"
+            echo
+            echo "See the [run log](${RUN_URL}). Fix the cause if needed, then add the \`ai\` label to retry."
+          } > "$OUT_DIR/failed-comment.md"
+          {
+            echo "outcome=${outcome}"
+            echo "title=${title}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish branch and PR
+        id: publish
+        if: steps.result.outputs.outcome == 'ready'
+        env:
+          GH_TOKEN: ${{ secrets.bot_token || github.token }}
+          TITLE: ${{ steps.result.outputs.title }}
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "${TITLE}" -m "github-flow Crafter run for #${ISSUE}"
+          fi
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            range="origin/${BRANCH}..HEAD"
+          else
+            range="origin/${DEFAULT_BRANCH}..HEAD"
+          fi
+          if [ "$(git rev-list --count "$range")" -eq 0 ]; then
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git push -u origin "$BRANCH"
+          owner="${REPO%%/*}"
+          pr="$(gh api "repos/${REPO}/pulls?state=open&head=${owner}:${BRANCH}" \
+            --jq '.[0].number // empty')"
+          if [ -z "$pr" ]; then
+            {
+              cat "$OUT_DIR/summary.md"
+              echo
+              echo '---'
+              echo "Closes #${ISSUE}"
+              echo
+              echo '_Opened by the github-flow Crafter. Merge is always a human decision._'
+            } > "$OUT_DIR/pr-body.md"
+            pr_url="$(gh pr create --repo "$REPO" --head "$BRANCH" \
+              --base "$DEFAULT_BRANCH" --title "$TITLE" \
+              --body-file "$OUT_DIR/pr-body.md")"
+            pr="${pr_url##*/}"
+          else
+            {
+              echo '**github-flow** — Crafter pushed an update to this PR.'
+              echo
+              cat "$OUT_DIR/summary.md"
+            } > "$OUT_DIR/pr-comment.md"
+            gh api -X POST "repos/${REPO}/issues/${pr}/comments" \
+              -F body=@"$OUT_DIR/pr-comment.md" >/dev/null
+          fi
+          {
+            echo "**github-flow** — Crafter finished. PR [#${pr}](${GH_SERVER}/${REPO}/pull/${pr}) is ready for review."
+            echo
+            echo 'Review and merge manually when satisfied. To request changes: leave a PR review requesting changes (or describe them in an issue comment), then add the `ai` label to this issue.'
+          } > "$OUT_DIR/issue-comment.md"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Update issue — PR open
+        if: steps.result.outputs.outcome == 'ready' && steps.publish.outputs.pushed == 'true'
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          state: flow/pr-open
+          comment-file: ${{ env.OUT_DIR }}/issue-comment.md
+
+      - name: Update issue — no changes produced
+        if: steps.result.outputs.outcome == 'ready' && steps.publish.outputs.pushed == 'false'
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          state: flow/blocked-build
+          comment: >-
+            **github-flow** — the Crafter reported success but produced no
+            changes, so nothing was pushed. Refine the issue (the acceptance
+            criteria may already be satisfied), then add the `ai` label to
+            retry, or close the issue if no work is needed.
+
+      - name: Update issue — blocked
+        if: steps.result.outputs.outcome == 'blocked'
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          state: flow/blocked-build
+          comment-file: ${{ env.OUT_DIR }}/blocked-comment.md
+
+      - name: Update issue — failed
+        if: steps.result.outputs.outcome == 'failed'
+        uses: 4moda/github-flow/actions/update-issue@v1
+        with:
+          issue-number: ${{ env.ISSUE }}
+          state: flow/blocked-build
+          comment-file: ${{ env.OUT_DIR }}/failed-comment.md
+
+      - name: Recover from unexpected failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "flow/blocked-build" --repo "$REPO" --color b60205 \
+            --description "github-flow: implementation blocked, needs human input (automation-managed)" \
+            >/dev/null 2>&1 || true
+          # clear whatever state the run started from, so at most one
+          # flow/* label remains after recovery
+          for label in flow%2Fbuilding flow%2Fawaiting-approval flow%2Fpr-open; do
+            gh api -X DELETE "repos/${REPO}/issues/${ISSUE}/labels/${label}" \
+              >/dev/null 2>&1 || true
+          done
+          gh api -X POST "repos/${REPO}/issues/${ISSUE}/labels" \
+            -f "labels[]=flow/blocked-build" >/dev/null 2>&1 || true
+          gh api -X POST "repos/${REPO}/issues/${ISSUE}/comments" \
+            -f body="**github-flow** — the build run failed unexpectedly. See the [run log](${RUN_URL}), then add the \`ai\` label to retry." \
+            >/dev/null 2>&1 || true
+          gh api -X DELETE "repos/${REPO}/issues/${ISSUE}/labels/ai" \
+            >/dev/null 2>&1 || true

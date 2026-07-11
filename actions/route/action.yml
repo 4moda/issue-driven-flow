@@ -1,0 +1,42 @@
+name: github-flow route
+description: >-
+  Decide what a github-flow workflow should do with an issue when the `ai`
+  label is added. Wraps scripts/gf.py so shape.yml and build.yml share one
+  tested routing table and exactly one of them acts on any given issue.
+inputs:
+  issue-number:
+    description: Issue number in the current repository
+    required: true
+  workflow:
+    description: Which workflow is asking ("shape" or "build")
+    required: true
+outputs:
+  action:
+    description: shape | build | acknowledge | skip
+    value: ${{ steps.route.outputs.action }}
+  state:
+    description: Current flow/* state label, "none", or "invalid"
+    value: ${{ steps.route.outputs.state }}
+  note:
+    description: Human-facing explanation for acknowledge actions
+    value: ${{ steps.route.outputs.note }}
+  first-run:
+    description: '"true" when this build is the first implementation run'
+    value: ${{ steps.route.outputs.first-run }}
+runs:
+  using: composite
+  steps:
+    - id: route
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        ISSUE: ${{ inputs.issue-number }}
+        WORKFLOW: ${{ inputs.workflow }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        gh api "repos/${REPO}/issues/${ISSUE}" \
+          | python3 "${ACTION_PATH}/../../scripts/gf.py" route \
+              --workflow "$WORKFLOW" --format github \
+          | tee -a "$GITHUB_OUTPUT"

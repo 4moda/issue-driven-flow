@@ -1,0 +1,102 @@
+name: github-flow build-context
+description: >-
+  Collect everything a github-flow agent run needs into a context directory:
+  issue payload, body and conversation, current flow/* state, ready-checkbox
+  state, linked PR with its review feedback, a repository tree summary, and
+  the agent contracts. The target repository must already be checked out in
+  the workspace.
+inputs:
+  issue-number:
+    description: Issue number in the current repository
+    required: true
+  context-dir:
+    description: Directory to write context files into (default $RUNNER_TEMP/gf-context)
+    required: false
+    default: ""
+outputs:
+  state:
+    description: Current flow/* state label, or "none"
+    value: ${{ steps.collect.outputs.state }}
+  ready:
+    description: '"true" when the ready-for-implementation checkbox is ticked'
+    value: ${{ steps.collect.outputs.ready }}
+  pr-number:
+    description: Open PR whose head branch is flow/issue-<n>, empty if none
+    value: ${{ steps.collect.outputs.pr-number }}
+  branch:
+    description: Working branch name for this issue
+    value: ${{ steps.collect.outputs.branch }}
+runs:
+  using: composite
+  steps:
+    - id: collect
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        ISSUE: ${{ inputs.issue-number }}
+        DIR: ${{ inputs.context-dir }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        gf="${ACTION_PATH}/../../scripts/gf.py"
+        DIR="${DIR:-${RUNNER_TEMP}/gf-context}"
+        mkdir -p "$DIR/contracts"
+
+        gh api "repos/${REPO}/issues/${ISSUE}" > "$DIR/issue.json"
+        jq -r '.body // ""' "$DIR/issue.json" > "$DIR/issue-body.md"
+        gh api "repos/${REPO}/issues/${ISSUE}/comments" > "$DIR/issue-comments.json"
+
+        state="$(python3 "$gf" state < "$DIR/issue.json")"
+        ready="$(python3 "$gf" ready < "$DIR/issue.json")"
+        branch="flow/issue-${ISSUE}"
+        owner="${REPO%%/*}"
+        pr="$(gh api "repos/${REPO}/pulls?state=open&head=${owner}:${branch}" \
+          --jq '.[0].number // empty')"
+
+        if [ -n "$pr" ]; then
+          gh api "repos/${REPO}/pulls/${pr}" > "$DIR/pr.json"
+          gh api "repos/${REPO}/pulls/${pr}/reviews" > "$DIR/pr-reviews.json"
+          gh api "repos/${REPO}/pulls/${pr}/comments" > "$DIR/pr-review-comments.json"
+          gh api "repos/${REPO}/issues/${pr}/comments" > "$DIR/pr-comments.json"
+        fi
+
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          git ls-files > "$DIR/tree.txt"
+          for f in README.md README.rst README.txt readme.md; do
+            if [ -f "$f" ]; then
+              head -c 8000 "$f" > "$DIR/readme-excerpt.md"
+              break
+            fi
+          done
+        fi
+
+        cp "${ACTION_PATH}/../../skills/github-flow/references/"*.md "$DIR/contracts/"
+
+        default_branch="$(gh api "repos/${REPO}" --jq '.default_branch')"
+        jq -n \
+          --arg number "$ISSUE" \
+          --arg title "$(jq -r '.title // ""' "$DIR/issue.json")" \
+          --arg state "$state" \
+          --arg ready "$ready" \
+          --arg branch "$branch" \
+          --arg pr "${pr}" \
+          --arg default_branch "$default_branch" \
+          --arg repository "$REPO" \
+          '{
+            number: ($number | tonumber),
+            title: $title,
+            state: $state,
+            ready: ($ready == "true"),
+            branch: $branch,
+            pr_number: (if $pr == "" then null else ($pr | tonumber) end),
+            default_branch: $default_branch,
+            repository: $repository
+          }' > "$DIR/meta.json"
+
+        {
+          echo "state=${state}"
+          echo "ready=${ready}"
+          echo "pr-number=${pr}"
+          echo "branch=${branch}"
+        } >> "$GITHUB_OUTPUT"

@@ -1,0 +1,91 @@
+name: github-flow update-issue
+description: >-
+  Apply a github-flow transition to an issue: swap the flow/* state label,
+  optionally replace the body, post a comment, and remove the public `ai`
+  trigger label. All flow/* label writes go through this action so an issue
+  always ends up with at most one state label.
+inputs:
+  issue-number:
+    description: Issue number in the current repository
+    required: true
+  state:
+    description: Target flow/* state label. Empty leaves the state unchanged.
+    required: false
+    default: ""
+  body-file:
+    description: File whose content replaces the issue body
+    required: false
+    default: ""
+  comment:
+    description: Comment body to post (inline text)
+    required: false
+    default: ""
+  comment-file:
+    description: File whose content is posted as a comment (wins over `comment`)
+    required: false
+    default: ""
+  remove-ai:
+    description: Set "true" to remove the public `ai` trigger label
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        ISSUE: ${{ inputs.issue-number }}
+        STATE: ${{ inputs.state }}
+        BODY_FILE: ${{ inputs.body-file }}
+        COMMENT: ${{ inputs.comment }}
+        COMMENT_FILE: ${{ inputs.comment-file }}
+        REMOVE_AI: ${{ inputs.remove-ai }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "$STATE" ]; then
+          case "$STATE" in
+            flow/*) ;;
+            *) echo "ERROR: state must be a flow/* label, got: $STATE" >&2; exit 1 ;;
+          esac
+          # self-heal: make sure the label exists in the repository
+          gh label create "$STATE" --repo "$REPO" --color ededed \
+            --description "github-flow internal state (automation-managed)" \
+            >/dev/null 2>&1 || true
+          current="$(gh api "repos/${REPO}/issues/${ISSUE}" \
+            --jq '[.labels[].name | select(startswith("flow/"))][]')"
+          have_target=false
+          while IFS= read -r label; do
+            [ -n "$label" ] || continue
+            if [ "$label" = "$STATE" ]; then
+              have_target=true
+              continue
+            fi
+            encoded="$(jq -rn --arg l "$label" '$l | @uri')"
+            gh api -X DELETE "repos/${REPO}/issues/${ISSUE}/labels/${encoded}" \
+              >/dev/null 2>&1 || true
+          done <<<"$current"
+          if [ "$have_target" = "false" ]; then
+            gh api -X POST "repos/${REPO}/issues/${ISSUE}/labels" \
+              -f "labels[]=${STATE}" >/dev/null
+          fi
+        fi
+
+        if [ -n "$BODY_FILE" ]; then
+          gh api -X PATCH "repos/${REPO}/issues/${ISSUE}" \
+            -F body=@"$BODY_FILE" >/dev/null
+        fi
+
+        if [ -n "$COMMENT_FILE" ]; then
+          gh api -X POST "repos/${REPO}/issues/${ISSUE}/comments" \
+            -F body=@"$COMMENT_FILE" >/dev/null
+        elif [ -n "$COMMENT" ]; then
+          gh api -X POST "repos/${REPO}/issues/${ISSUE}/comments" \
+            -f body="$COMMENT" >/dev/null
+        fi
+
+        if [ "$REMOVE_AI" = "true" ]; then
+          gh api -X DELETE "repos/${REPO}/issues/${ISSUE}/labels/ai" \
+            >/dev/null 2>&1 || true
+        fi
