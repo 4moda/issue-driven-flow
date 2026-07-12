@@ -91,8 +91,8 @@ AI が呼び出されるのは **正確に2つのステップ** だけです:
   保持せず（`persist-credentials: false`）、ワークフロー自身の publish ステ
   ップでのみ再認証します。Codex と Gemini の実行には GitHub トークンを一切
   渡しません。また各エージェントはツール許可リストの下で動作します
-  （Composer は出力ディレクトリにのみ書き込み可能、Crafter には
-  `git push`/`gh` が拒否されます）。
+  （Composer にはシェルがなく、Crafter には `git push`/`gh` が拒否され
+  ます）。
 
 ## 仕組み
 

@@ -207,8 +207,45 @@ jobs:
             echo "The context files for this run are in ${CONTEXT_DIR}."
             echo "The target repository is checked out read-only in the working directory."
             echo "Write your outputs into ${OUT_DIR}."
+            echo "Before you finish, confirm ${OUT_DIR}/result.json exists and is valid JSON — the run fails without it."
             echo 'GF_PROMPT_EOF'
           } >> "$GITHUB_ENV"
+
+      # A Stop hook re-prompts Claude once if it tries to finish without a
+      # valid result.json (the workflow still validates afterwards).
+      # stop_hook_active guards against blocking forever.
+      - name: Install result guard (Stop hook)
+        if: steps.agent.outputs.agent == 'claude'
+        run: |
+          set -euo pipefail
+          guard_dir="${RUNNER_TEMP}/gf-guard"
+          mkdir -p "$guard_dir"
+          cat > "${guard_dir}/stop-hook.sh" <<EOF
+          #!/usr/bin/env bash
+          input=\$(cat)
+          if printf '%s' "\$input" | jq -e '.stop_hook_active == true' >/dev/null 2>&1; then
+            exit 0
+          fi
+          if [ -f "${OUT_DIR}/result.json" ] \\
+             && jq -e '(.outcome // "") | IN("shaped", "blocked", "split")' "${OUT_DIR}/result.json" >/dev/null 2>&1; then
+            case "\$(jq -r '.outcome' "${OUT_DIR}/result.json")" in
+              shaped|split) [ -s "${OUT_DIR}/issue-body.md" ] && exit 0 ;;
+              blocked) exit 0 ;;
+            esac
+          fi
+          echo "You are finishing without valid output files. Re-read the Outputs section of your contract and write ${OUT_DIR}/result.json (outcome: shaped, blocked, or split) plus ${OUT_DIR}/issue-body.md when the outcome requires it — then finish." >&2
+          exit 2
+          EOF
+          cat > "${guard_dir}/settings.json" <<EOF
+          {
+            "hooks": {
+              "Stop": [
+                { "hooks": [ { "type": "command", "command": "bash ${guard_dir}/stop-hook.sh" } ] }
+              ]
+            }
+          }
+          EOF
+          echo "GF_CLAUDE_SETTINGS=${guard_dir}/settings.json" >> "$GITHUB_ENV"
 
       - name: Run Composer (Claude Code)
         if: steps.agent.outputs.agent == 'claude'
@@ -218,10 +255,13 @@ jobs:
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
           github_token: ${{ github.token }}
           prompt: ${{ env.AGENT_PROMPT }}
-          # Write is limited to the output directory (// = absolute path
-          # rule), so the working tree stays read-only for real
+          settings: ${{ env.GF_CLAUDE_SETTINGS }}
+          # plain Write on purpose: path-scoped rules like Write(//abs/**)
+          # deny everything (verified against claude CLI 2.1.207, and live
+          # as photo-layout#24/#27) — shape applies no working-tree edits,
+          # so a stray write is discarded with the runner anyway
           claude_args: >-
-            --allowedTools "Read,Glob,Grep,${{ inputs.web_research && 'WebSearch,WebFetch,' || '' }}Write(/${{ runner.temp }}/gf-out/**)"
+            --allowedTools "Read,Glob,Grep,${{ inputs.web_research && 'WebSearch,WebFetch,' || '' }}Write"
             --max-turns ${{ inputs.max_turns }}
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
 

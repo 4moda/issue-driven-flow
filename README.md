@@ -87,9 +87,8 @@ apply mechanically, so every state transition is explainable from logs.
   to a human. The checkout used for agent runs keeps no git credential
   (`persist-credentials: false`) — the workflow re-authenticates only in
   its own publish step — Codex and Gemini runs receive no GitHub token at
-  all, and each agent runs under a tool allowlist (the Composer can write
-  only to its output directory; `git push`/`gh` are denied to the
-  Crafter).
+  all, and each agent runs under a tool allowlist (the Composer gets no
+  shell; `git push`/`gh` are denied to the Crafter).
 
 ## How it works
 
