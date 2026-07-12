@@ -280,8 +280,42 @@ jobs:
             echo "The context files for this run are in ${CONTEXT_DIR}."
             echo "The repository is checked out in the working directory on branch ${BRANCH}; edit it directly."
             echo "Write your run outputs into ${OUT_DIR}."
+            echo "Before you finish, confirm ${OUT_DIR}/result.json exists and is valid JSON — the run fails without it."
             echo 'GF_PROMPT_EOF'
           } >> "$GITHUB_ENV"
+
+      # A Stop hook re-prompts Claude once if it tries to finish without a
+      # valid result.json (the workflow still validates afterwards).
+      # stop_hook_active guards against blocking forever.
+      - name: Install result guard (Stop hook)
+        if: steps.agent.outputs.agent == 'claude'
+        run: |
+          set -euo pipefail
+          guard_dir="${RUNNER_TEMP}/gf-guard"
+          mkdir -p "$guard_dir"
+          cat > "${guard_dir}/stop-hook.sh" <<EOF
+          #!/usr/bin/env bash
+          input=\$(cat)
+          if printf '%s' "\$input" | jq -e '.stop_hook_active == true' >/dev/null 2>&1; then
+            exit 0
+          fi
+          if [ -f "${OUT_DIR}/result.json" ] \\
+             && jq -e '(.outcome // "") | IN("ready", "blocked")' "${OUT_DIR}/result.json" >/dev/null 2>&1; then
+            exit 0
+          fi
+          echo "You are finishing without valid output files. Re-read the Outputs section of your contract and write ${OUT_DIR}/result.json (outcome: ready or blocked, with the fields the contract requires) — then finish." >&2
+          exit 2
+          EOF
+          cat > "${guard_dir}/settings.json" <<EOF
+          {
+            "hooks": {
+              "Stop": [
+                { "hooks": [ { "type": "command", "command": "bash ${guard_dir}/stop-hook.sh" } ] }
+              ]
+            }
+          }
+          EOF
+          echo "GF_CLAUDE_SETTINGS=${guard_dir}/settings.json" >> "$GITHUB_ENV"
 
       - name: Run Crafter (Claude Code)
         if: steps.agent.outputs.agent == 'claude'
@@ -291,6 +325,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
           github_token: ${{ github.token }}
           prompt: ${{ env.AGENT_PROMPT }}
+          settings: ${{ env.GF_CLAUDE_SETTINGS }}
           # publishing belongs to the workflow: the contract already forbids
           # commit/push/gh, the deny rules make it fail fast instead
           claude_args: >-
