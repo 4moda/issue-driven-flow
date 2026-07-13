@@ -20,9 +20,8 @@ on:
     inputs:
       agent:
         description: >-
-          Coding agent to run: claude, codex, or gemini. Empty = auto-detect
-          from the provided secrets, preferring claude, then codex, then
-          gemini.
+          Coding agent to run: claude or codex. Empty = auto-detect from the
+          provided secrets, preferring claude, then codex.
         type: string
         required: false
         default: ""
@@ -36,8 +35,8 @@ on:
       max_turns:
         description: >-
           Upper bound on Crafter agent turns; the run fails (and the issue
-          lands in flow/blocked-build) when exceeded. Enforced for claude
-          and gemini; codex runs are bounded by the job timeout only.
+          lands in flow/blocked-build) when exceeded. Enforced for claude;
+          codex runs are bounded by the job timeout only.
         type: number
         required: false
         default: 150
@@ -66,9 +65,6 @@ on:
         required: false
       openai_api_key:
         description: OpenAI API key; enables the codex agent
-        required: false
-      gemini_api_key:
-        description: Gemini API key; enables the gemini agent
         required: false
       bot_token:
         description: >-
@@ -187,34 +183,31 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # `uses:` cannot be chosen dynamically, so the selected agent gates
-      # one of three mutually exclusive Run Crafter steps below.
+      # one of two mutually exclusive Run Crafter steps below.
       - name: Select agent
         id: agent
         env:
           AGENT: ${{ inputs.agent }}
           HAS_CLAUDE: ${{ (secrets.anthropic_api_key != '' || secrets.claude_code_oauth_token != '') && 'true' || 'false' }}
           HAS_CODEX: ${{ secrets.openai_api_key != '' && 'true' || 'false' }}
-          HAS_GEMINI: ${{ secrets.gemini_api_key != '' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           agent=""
           case "$AGENT" in
             claude) if [ "$HAS_CLAUDE" = "true" ]; then agent=claude; fi ;;
             codex)  if [ "$HAS_CODEX" = "true" ];  then agent=codex;  fi ;;
-            gemini) if [ "$HAS_GEMINI" = "true" ]; then agent=gemini; fi ;;
             "")
               if   [ "$HAS_CLAUDE" = "true" ]; then agent=claude
               elif [ "$HAS_CODEX" = "true" ];  then agent=codex
-              elif [ "$HAS_GEMINI" = "true" ]; then agent=gemini
               fi
               ;;
             *)
-              echo "::error::unknown agent '${AGENT}' (expected claude, codex, or gemini)"
+              echo "::error::unknown agent '${AGENT}' (expected claude or codex)"
               exit 1
               ;;
           esac
           if [ -z "$agent" ]; then
-            echo "::error::no credential for the requested agent. Provide anthropic_api_key/claude_code_oauth_token (claude), openai_api_key (codex), or gemini_api_key (gemini)."
+            echo "::error::no credential for the requested agent. Provide anthropic_api_key/claude_code_oauth_token (claude) or openai_api_key (codex)."
             exit 1
           fi
           echo "agent=${agent}" >> "$GITHUB_OUTPUT"
@@ -351,28 +344,6 @@ jobs:
           # the labeled-event gate (trigger label, triage+ actors) is this
           # workflow's access control; no per-user gate here
           allow-users: "*"
-
-      - name: Run Crafter (Gemini CLI)
-        if: steps.agent.outputs.agent == 'gemini'
-        uses: google-github-actions/run-gemini-cli@v0
-        env:
-          GEMINI_CLI_TRUST_WORKSPACE: "true"
-          # the agent needs no GitHub access; the workflow publishes results
-          GITHUB_TOKEN: ""
-        with:
-          gemini_api_key: ${{ secrets.gemini_api_key }}
-          gemini_model: ${{ inputs.model }}
-          prompt: ${{ env.AGENT_PROMPT }}
-          # tools.core is an allowlist: file tools plus shell for tests and,
-          # when enabled, web research; no MCP. Both grep tool names are
-          # listed to cover CLI versions before/after the rename.
-          settings: |-
-            {
-              "model": { "maxSessionTurns": ${{ inputs.max_turns }} },
-              "context": { "includeDirectories": ["${{ env.CONTEXT_DIR }}", "${{ env.OUT_DIR }}"] },
-              "tools": { "core": ["read_file", "read_many_files", "list_directory", "glob", "grep_search", "search_file_content", "write_file", "replace", "run_shell_command"${{ inputs.web_research && ', "web_fetch", "google_web_search"' || '' }}] },
-              "telemetry": { "enabled": false }
-            }
 
       - name: Read Crafter result
         id: result

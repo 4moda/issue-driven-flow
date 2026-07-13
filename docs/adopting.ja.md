@@ -44,11 +44,10 @@ gh api -X PUT repos/<owner>/<repo>/actions/permissions/workflow \
 |--------------|------------------------|
 | `ANTHROPIC_API_KEY`（Anthropic API キー）または `CLAUDE_CODE_OAUTH_TOKEN`（`claude setup-token` で取得、Pro/Max サブスクリプション向け） | **Claude Code**（[anthropics/claude-code-action](https://github.com/anthropics/claude-code-action)） |
 | `OPENAI_API_KEY` | **Codex**（[openai/codex-action](https://github.com/openai/codex-action)） |
-| `GEMINI_API_KEY` | **Gemini CLI**（[google-github-actions/run-gemini-cli](https://github.com/google-github-actions/run-gemini-cli)） |
 
-シークレットは1つで十分です。複数のエージェントのシークレットが存在する
-場合、自動検出は claude、codex、gemini の順で優先します。明示的に選ぶには
-`shape` と `build` に `with: { agent: codex }`（または `gemini`、`claude`）
+シークレットは1つで十分です。両方のエージェントのシークレットが存在する
+場合、自動検出は claude、codex の順で優先します。明示的に選ぶには
+`shape` と `build` に `with: { agent: codex }`（または `claude`）
 を渡してください。
 
 任意: `GF_BOT_TOKEN` —— プッシュと PR 作成に使用する PAT（contents: write,
@@ -110,7 +109,6 @@ jobs:
       anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       openai_api_key: ${{ secrets.OPENAI_API_KEY }}
-      gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
 
   build:
     # fires for `flow` on an issue AND for `flow` on a flow/issue-N pull request
@@ -124,7 +122,6 @@ jobs:
       anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       openai_api_key: ${{ secrets.OPENAI_API_KEY }}
-      gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
       bot_token: ${{ secrets.GF_BOT_TOKEN }}
 
   sync-pr:
@@ -159,21 +156,20 @@ jobs:
 した場合は選択されたエージェントのデフォルトが使用されます。ID は実行され
 るエージェントのものである必要があります: Claude の ID は
 [Anthropic models overview](https://docs.claude.com/en/docs/about-claude/models)
-に一覧があり（例: `claude-opus-4-8`、`claude-sonnet-5`）、Codex と Gemini
-の ID はそれぞれのベンダードキュメントを参照してください。
+に一覧があり（例: `claude-opus-4-8`、`claude-sonnet-5`）、Codex の ID は
+そのベンダードキュメントを参照してください。
 
 Web 調査: デフォルトでエージェントには Web 検索・フェッチのツールが与えら
 れます。これにより Composer は外部の事実（API やライブラリの機能など）を
 ブロックせずに確認でき、Crafter はドキュメントを参照できます。エージェント
 の実行をモデル API 以外オフラインに保ちたい場合は、`shape` と `build` に
 `with: { web_research: false }` を渡してください。エージェントごとの対応
-は、Claude の `WebSearch`/`WebFetch`、Codex の `web_search`、Gemini の
-`web_fetch`/`google_web_search` です。
+は、Claude の `WebSearch`/`WebFetch`、Codex の `web_search` です。
 
 暴走防止策: すべてのエージェント実行は二重に制限されています —— エージェン
 トのターン数（`with: { max_turns: N }` で調整可能。デフォルトは Composer
 が50、Crafter が150）と、実時間のジョブタイムアウト（shape が30分、build
-が90分）です。ターン数上限は claude と gemini で適用されます。codex には
+が90分）です。ターン数上限は claude で適用されます。codex には
 相当する設定がないため、タイムアウトのみが上限になります。どちらかを超え
 ると実行は失敗し、Issue は実行ログへのリンクとともに該当する
 `flow/blocked-*` ステートになります。再試行するには `flow` を追加してくだ

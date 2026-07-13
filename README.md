@@ -8,8 +8,8 @@ Issue-driven AI development for GitHub, shared across repositories.
 
 Humans steer with **one label and one checkbox**: add `flow` to an issue to
 run the next automated step; tick `ready for implementation` to approve
-implementation. A coding agent — **Claude Code, Codex, or Gemini CLI**,
-picked from the secrets you provide — runs inside GitHub Actions: the
+implementation. A coding agent — **Claude Code or Codex**, picked from the
+secrets you provide — runs inside GitHub Actions: the
 **Composer** shapes raw issues into implementable specs, the **Crafter**
 implements approved issues as pull requests. **Merging is always a human
 action.** Internal `flow/*` state labels are managed entirely by
@@ -59,15 +59,13 @@ apply mechanically, so every state transition is explainable from logs.
 
 - **Credentials are the consumer's own.** Each consuming repository
   provides its own agent secret (`ANTHROPIC_API_KEY` /
-  `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`) as a
-  GitHub Actions secret; the workflows run the matching agent. This
-  repository ships code only — it never receives, stores, or proxies
-  anyone's tokens.
+  `CLAUDE_CODE_OAUTH_TOKEN`, or `OPENAI_API_KEY`) as a GitHub Actions
+  secret; the workflows run the matching agent. This repository ships
+  code only — it never receives, stores, or proxies anyone's tokens.
 - **The agent credential is sent to its own vendor's API and nowhere
   else.** It is consumed by the vendor's official action
-  ([`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action),
-  [`openai/codex-action`](https://github.com/openai/codex-action), or
-  [`google-github-actions/run-gemini-cli`](https://github.com/google-github-actions/run-gemini-cli))
+  ([`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action)
+  or [`openai/codex-action`](https://github.com/openai/codex-action))
   running on the consumer repository's own runner. The mechanical steps
   talk only to `github.com` with the run's `GITHUB_TOKEN`. GitHub masks
   secrets in logs.
@@ -86,9 +84,9 @@ apply mechanically, so every state transition is explainable from logs.
   label; the workflows do, deterministically, and merging is always left
   to a human. The checkout used for agent runs keeps no git credential
   (`persist-credentials: false`) — the workflow re-authenticates only in
-  its own publish step — Codex and Gemini runs receive no GitHub token at
-  all, and each agent runs under a tool allowlist (the Composer gets no
-  shell; `git push`/`gh` are denied to the Crafter).
+  its own publish step — Codex runs receive no GitHub token at all, and
+  each agent runs under a tool allowlist (the Composer gets no shell;
+  `git push`/`gh` are denied to the Crafter).
 
 ## How it works
 
