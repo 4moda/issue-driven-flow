@@ -198,6 +198,62 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(res["action"], "shape")
 
 
+class OpenBlockedByRouteTest(unittest.TestCase):
+    """An open 'blocked by' dependency gates build routing only; shape
+    routing (issue shaping) is never affected by dependency state."""
+
+    BUILDABLE_LABELS = (
+        ["flow/awaiting-approval"],  # with READY_BODY below
+        ["flow/blocked-build"],
+        ["flow/pr-open"],
+    )
+
+    def buildable_issue(self, labels):
+        body = READY_BODY if labels == ["flow/awaiting-approval"] else ""
+        return issue(labels=labels, body=body)
+
+    def test_build_blocked_by_open_dependency(self):
+        for labels in self.BUILDABLE_LABELS:
+            with self.subTest(labels=labels):
+                payload = self.buildable_issue(labels)
+                res = gf.route(payload, "build", open_blocked_by=[12, 34])
+                self.assertEqual(res["action"], "acknowledge")
+                self.assertIn("#12", res["note"])
+                self.assertIn("#34", res["note"])
+                self.assertFalse(res["first_run"])
+
+    def test_build_runs_when_all_dependencies_closed_or_none(self):
+        for labels in self.BUILDABLE_LABELS:
+            for open_blocked_by in (None, []):
+                with self.subTest(labels=labels, open_blocked_by=open_blocked_by):
+                    payload = self.buildable_issue(labels)
+                    res = gf.route(payload, "build", open_blocked_by=open_blocked_by)
+                    self.assertEqual(res["action"], "build")
+
+    def test_shape_routing_unaffected_by_open_dependency(self):
+        # shapeable states: no state label, flow/blocked-shape, and
+        # flow/awaiting-approval with the checkbox still unticked
+        for payload in (
+            issue(),
+            issue(labels=["flow/blocked-shape"]),
+            issue(labels=["flow/awaiting-approval"], body=UNREADY_BODY),
+        ):
+            with self.subTest(payload=payload):
+                res = gf.route(payload, "shape", open_blocked_by=[12, 34])
+                self.assertEqual(res["action"], "shape")
+
+    def test_pr_trigger_build_also_gated(self):
+        payload = issue(labels=["flow/pr-open"])
+        res = gf.route(payload, "build", trigger="pr", open_blocked_by=[7])
+        self.assertEqual(res["action"], "acknowledge")
+        self.assertIn("#7", res["note"])
+
+    def test_note_names_the_trigger_label(self):
+        payload = self.buildable_issue(["flow/blocked-build"])
+        res = gf.route(payload, "build", trigger_label="run-ai", open_blocked_by=[5])
+        self.assertIn("`run-ai`", res["note"])
+
+
 class PrTriggerRouteTest(unittest.TestCase):
     """The trigger label added to a flow/issue-N pull request routes only
     through build.yml, which then owns the acknowledge role."""
@@ -353,6 +409,25 @@ class CliTest(unittest.TestCase):
         lines = dict(line.split("=", 1) for line in out.strip().splitlines())
         self.assertEqual(lines["action"], "build")
         self.assertEqual(lines["first-run"], "true")
+
+    def test_route_open_blocked_by(self):
+        code, out = self.run_cli(
+            ["route", "--workflow", "build", "--open-blocked-by", "12,34"],
+            issue(labels=["flow/pr-open"]),
+        )
+        self.assertEqual(code, 0)
+        res = json.loads(out)
+        self.assertEqual(res["action"], "acknowledge")
+        self.assertIn("#12", res["note"])
+        self.assertIn("#34", res["note"])
+
+    def test_route_open_blocked_by_empty_string_is_no_gate(self):
+        code, out = self.run_cli(
+            ["route", "--workflow", "build", "--open-blocked-by", ""],
+            issue(labels=["flow/pr-open"]),
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["action"], "build")
 
     def test_route_pr_trigger(self):
         code, out = self.run_cli(

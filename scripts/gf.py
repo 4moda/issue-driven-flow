@@ -13,8 +13,12 @@ Subcommands:
   route              Print what a workflow should do when the trigger label
                       is added to the issue. --workflow is "shape" or
                       "build"; --trigger-label names the public trigger
-                      label (default "flow"); --format github prints
-                      GITHUB_OUTPUT-style key=value lines.
+                      label (default "flow"); --open-blocked-by is a
+                      comma-separated list of issue numbers that still
+                      openly block this issue ("blocked by" dependencies;
+                      build routing only — shape is never gated by them);
+                      --format github prints GITHUB_OUTPUT-style key=value
+                      lines.
   split-parent       Read a sub-issue on stdin, print the split parent's
                       issue number recorded in its body, or an empty line
                       when it has none.
@@ -122,7 +126,11 @@ def split_complete(parent: dict, siblings: list[dict]) -> bool:
 
 
 def route(
-    issue: dict, workflow: str, trigger: str = "issue", trigger_label: str = "flow"
+    issue: dict,
+    workflow: str,
+    trigger: str = "issue",
+    trigger_label: str = "flow",
+    open_blocked_by: list[int] | None = None,
 ) -> dict:
     """Decide what `workflow` (shape or build) should do with `issue`.
 
@@ -133,6 +141,13 @@ def route(
     issue triggers shape.yml owns it. Either way, every trigger is answered
     exactly once: for any issue, at most one workflow returns a non-"skip"
     action. `trigger_label` is only interpolated into human-facing notes.
+
+    `open_blocked_by` lists the issue numbers of this issue's still-open
+    "blocked by" dependencies (GitHub's Issue Dependencies API). When
+    non-empty, it gates build routing only: a decision that would otherwise
+    build is turned into an acknowledge naming the open blockers instead.
+    Shape routing never checks it — shaping is always allowed regardless of
+    dependency state.
 
     Returns {"action", "state", "note", "first_run"}.
     """
@@ -145,6 +160,20 @@ def route(
             "note": " ".join(note.split()),
             "first_run": first_run,
         }
+
+    def gate_build(res: dict) -> dict:
+        """Replace a "build" decision with an acknowledge naming the still-
+        open "blocked by" dependencies, when any exist. A no-op for every
+        other action (in particular, shape never returns "build")."""
+        if res["action"] != "build" or not open_blocked_by:
+            return res
+        numbers = ", ".join(f"#{n}" for n in open_blocked_by)
+        return result(
+            "acknowledge",
+            res["state"],
+            f"This issue is blocked by open dependencies ({numbers}). "
+            f"Wait for them to close, then add `{trigger_label}` again.",
+        )
 
     ack = "acknowledge" if (workflow == "shape" or trigger == "pr") else "skip"
 
@@ -182,7 +211,9 @@ def route(
 
     if state == AWAITING_APPROVAL:
         if is_ready(issue):
-            return result("build" if workflow == "build" else "skip", state, first_run=True)
+            return gate_build(
+                result("build" if workflow == "build" else "skip", state, first_run=True)
+            )
         # unchecked box = not approved yet: send the issue back to the Composer
         if workflow == "shape":
             return result("shape", state)
@@ -196,7 +227,7 @@ def route(
         return result("skip", state)
 
     if state in (BLOCKED_BUILD, PR_OPEN):
-        return result("build" if workflow == "build" else "skip", state)
+        return gate_build(result("build" if workflow == "build" else "skip", state))
 
     if state in (SHAPING, BUILDING):
         return result(
@@ -246,6 +277,11 @@ def main(argv: list[str] | None = None) -> int:
     route_p.add_argument("--workflow", choices=["shape", "build"], required=True)
     route_p.add_argument("--trigger", choices=["issue", "pr"], default="issue")
     route_p.add_argument("--trigger-label", default="flow")
+    route_p.add_argument(
+        "--open-blocked-by",
+        default="",
+        help="Comma-separated issue numbers of still-open 'blocked by' dependencies",
+    )
     route_p.add_argument("--format", choices=["json", "github"], default="json")
     sub.add_parser("split-parent")
     sub.add_parser("sub-issue-numbers")
@@ -263,7 +299,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "ready":
         print("true" if is_ready(payload) else "false")
     elif args.command == "route":
-        res = route(payload, args.workflow, args.trigger, args.trigger_label)
+        open_blocked_by = [
+            int(n) for n in args.open_blocked_by.split(",") if n.strip()
+        ]
+        res = route(payload, args.workflow, args.trigger, args.trigger_label, open_blocked_by)
         if args.format == "github":
             _print_github_output(res, sys.stdout)
         else:
