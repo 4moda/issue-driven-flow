@@ -115,6 +115,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      workflows: write
     secrets:
       anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -205,9 +206,12 @@ Only the `flow` label and the `ready for implementation` checkbox. All
 
 ## Notes and limits
 
-- The Crafter cannot modify `.github/workflows/` in the consumer repository
-  unless `GF_BOT_TOKEN` has the `workflow` scope; the default token rejects
-  such pushes.
+- `build.yml`'s own job requests `workflows: write` so the default
+  `GITHUB_TOKEN` can push changes under `.github/workflows/`; the consumer's
+  wrapper must also grant `workflows: write` on the `build` job (job
+  permissions are the intersection of caller and callee) — the example
+  above already does. Without it, such pushes are rejected regardless of
+  `contents: write`.
 - Runs are serialized per issue (`concurrency` group), so adding `flow`
   during a run queues an acknowledge rather than racing.
 - Minimum permissions are declared per job in the wrapper above; nothing in

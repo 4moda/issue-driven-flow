@@ -170,6 +170,12 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      # lets GITHUB_TOKEN push changes under .github/workflows/ (GitHub
+      # rejects such pushes from a token without this scope, regardless of
+      # contents: write). Still requires the consumer's calling job to
+      # grant `workflows: write` too — job permissions are the intersection
+      # of caller and callee.
+      workflows: write
     env:
       ISSUE: ${{ needs.route.outputs.issue-number }}
       REPO: ${{ github.repository }}

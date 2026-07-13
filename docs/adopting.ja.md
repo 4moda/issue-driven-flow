@@ -120,6 +120,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      workflows: write
     secrets:
       anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -213,9 +214,12 @@ Issue を個別に承認・トリガーします。
 
 ## 注意事項と制限
 
-- `GF_BOT_TOKEN` に `workflow` スコープがない限り、Crafter は利用側リポジ
-  トリの `.github/workflows/` を変更できません。デフォルトトークンはその
-  ようなプッシュを拒否します。
+- `build.yml` 自身のジョブが `workflows: write` を要求しているため、デフォ
+  ルトの `GITHUB_TOKEN` でも `.github/workflows/` 配下への変更をプッシュで
+  きます。ただし利用側のラッパーの `build` ジョブでも `workflows: write` を
+  付与する必要があります（ジョブ権限は呼び出し元と呼び出し先の積になるた
+  め）——上記の例では既にそうなっています。付与していないと、`contents:
+  write` があってもそのようなプッシュは拒否されます。
 - 実行は Issue ごとに直列化されます（`concurrency` グループ）。そのため実
   行中に `flow` を追加すると、競合するのではなく確認応答がキューに入りま
   す。
