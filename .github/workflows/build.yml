@@ -126,8 +126,11 @@ jobs:
           trigger: ${{ steps.issue.outputs.trigger }}
           trigger-label: ${{ inputs.trigger_label }}
 
-  # PR-labeled triggers never reach shape.yml, so build.yml answers the
-  # ones it cannot act on itself: comment on the PR and clear the trigger.
+  # build.yml owns the acknowledge role for two cases: PR-labeled triggers
+  # never reach shape.yml at all, and issue-labeled triggers on an
+  # otherwise-buildable issue with an open "blocked by" dependency. Either
+  # way: comment on whichever surface was labeled (issue or PR — both are
+  # "issues" to the comments/labels API) and clear the trigger.
   acknowledge:
     needs: route
     if: needs.route.outputs.action == 'acknowledge'
@@ -136,19 +139,19 @@ jobs:
     permissions:
       issues: write
     steps:
-      - name: Comment on PR and clear trigger
+      - name: Comment and clear trigger
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
+          TARGET: ${{ needs.route.outputs.trigger == 'pr' && github.event.pull_request.number || needs.route.outputs.issue-number }}
           NOTE: ${{ needs.route.outputs.note }}
           TRIGGER_LABEL: ${{ inputs.trigger_label }}
         run: |
           set -euo pipefail
-          gh api -X POST "repos/${REPO}/issues/${PR}/comments" \
+          gh api -X POST "repos/${REPO}/issues/${TARGET}/comments" \
             -f body="**issue-driven-flow** — no step to run. ${NOTE}" >/dev/null
           encoded="$(jq -rn --arg l "$TRIGGER_LABEL" '$l | @uri')"
-          gh api -X DELETE "repos/${REPO}/issues/${PR}/labels/${encoded}" \
+          gh api -X DELETE "repos/${REPO}/issues/${TARGET}/labels/${encoded}" \
             >/dev/null 2>&1 || true
 
   build:

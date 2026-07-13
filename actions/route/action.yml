@@ -58,8 +58,18 @@ runs:
               "(reserved for state labels), got: $TRIGGER_LABEL" >&2
             exit 1 ;;
         esac
+        # only build routing gates on dependencies, so shape skips the extra
+        # API call entirely
+        open_blocked_by=""
+        if [ "$WORKFLOW" = "build" ]; then
+          open_blocked_by="$(gh api --paginate \
+            "repos/${REPO}/issues/${ISSUE}/dependencies/blocked_by" \
+            --jq '.[] | select(.state == "open") | .number' \
+            | paste -sd, -)"
+        fi
         gh api "repos/${REPO}/issues/${ISSUE}" \
           | python3 "${ACTION_PATH}/../../scripts/gf.py" route \
               --workflow "$WORKFLOW" --trigger "$TRIGGER" \
-              --trigger-label "$TRIGGER_LABEL" --format github \
+              --trigger-label "$TRIGGER_LABEL" \
+              --open-blocked-by "$open_blocked_by" --format github \
           | tee -a "$GITHUB_OUTPUT"

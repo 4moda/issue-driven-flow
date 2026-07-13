@@ -54,6 +54,7 @@ one of them acts:
 | `flow/awaiting-approval`, checkbox unticked | **shape** (re-shape) | skip |
 | `flow/awaiting-approval`, checkbox ticked | skip | **build** (first run) |
 | `flow/blocked-build` / `flow/pr-open` | skip | **build** |
+| any buildable state above, with an open "blocked by" dependency | *(unaffected — still shape/skip as above)* | acknowledge (dependency blocked) |
 | `flow/shaping` / `flow/building` | acknowledge (busy) | skip |
 | `flow/done` | acknowledge (done) | skip |
 | `flow/split` | acknowledge (use the sub-issues) | skip |
@@ -65,6 +66,18 @@ so the trigger label never lingers silently.
 The re-shape row resolves scope rewrites: while the checkbox is unticked,
 `flow` always means "shape (again)". Ticking the checkbox is the only thing
 that changes the meaning of `flow` to "implement".
+
+The dependency-blocked row only ever changes build.yml's decision: before
+building, `actions/route` fetches the issue's "blocked by" dependencies
+(GitHub's Issue Dependencies API,
+`GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by`)
+and passes the still-open ones to `gf.py route`. If any are open, a
+decision that would otherwise build is turned into an acknowledge naming
+the open blocker issue numbers instead, and `flow` is removed as usual.
+Once every "blocked by" dependency is closed (or the issue has none), build
+routing proceeds exactly as before. shape.yml never fetches or checks
+dependency state — an issue can always be shaped (or re-shaped) regardless
+of what still blocks it, since shaping does not touch code.
 
 ### PR trigger (rework shortcut)
 
@@ -170,6 +183,12 @@ whose head branch is not `flow/issue-<n>` are ignored entirely.
 - **Crafter reports success with no changes** — nothing is pushed; the issue
   moves to `flow/blocked-build` explaining that the acceptance criteria may
   already be satisfied.
+- **`flow` on a buildable issue with an open "blocked by" dependency** —
+  acknowledged with the still-open blocker issue numbers; the issue's state
+  label is untouched, so adding `flow` again once the blockers close builds
+  normally. Sub-issue (parent/child) completion is never checked this way —
+  only "blocked by" dependencies gate building. Shaping the same issue is
+  unaffected.
 - **Last sub-issue of a split closes** — the `flow/split` parent is closed
   and set to `flow/done` automatically; a previously-closed sub-issue being
   reopened later does not reopen the parent (out of scope, a human
